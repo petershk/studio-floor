@@ -1,5 +1,5 @@
 {
-  "name": "agent-studio",
+  "name": "studio-floor",
   "version": "0.1.0",
   "description": "Several AI coding agents working as a team on one project, with a human watching and directing through a browser.",
   "type": "module",

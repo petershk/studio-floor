@@ -1,4 +1,4 @@
-# Agent Studio
+# Studio Floor
 
 Several AI coding agents working as a **team** on one project, in one directory,
 while a human watches and directs through a browser.
@@ -30,7 +30,7 @@ You need Node 20+ and at least one agent CLI on your PATH
 ([Claude Code](https://claude.com/claude-code), OpenAI Codex CLI, or Grok CLI).
 
 ```bash
-npm install -g agent-studio     # or: git clone … && npm link
+npm install -g studio-floor     # or: git clone … && npm link
 
 cd ~/my-project
 studio init                     # writes studio.config.json and PROJECT.md

@@ -61,7 +61,7 @@ store.append('studio.started', null, {
 
 const watchHost = HOST === '0.0.0.0' ? '<this-host>' : HOST;
 console.log(`
-  Agent Studio — ${PROJECT.name || 'untitled project'}
+  Studio Floor — ${PROJECT.name || 'untitled project'}
   ${'-'.repeat(Math.max(14, (PROJECT.name || 'untitled project').length + 15))}
   project    ${PROJECT_ROOT}
   config     ${CONFIG_FILE}

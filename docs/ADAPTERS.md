@@ -96,7 +96,7 @@ normally, so an adapter can ship on npm.
 Programmatically:
 
 ```js
-import { register } from 'agent-studio/adapters';
+import { register } from 'studio-floor/adapters';
 register(myAdapter);
 ```
 

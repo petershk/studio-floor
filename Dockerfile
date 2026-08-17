@@ -21,7 +21,7 @@ RUN npm install -g \
       @openai/codex@${CODEX_VERSION} \
  && npm cache clean --force
 
-WORKDIR /opt/agent-studio
+WORKDIR /opt/studio-floor
 COPY package.json ./
 COPY bin ./bin
 COPY src ./src

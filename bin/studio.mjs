@@ -119,7 +119,7 @@ switch (command) {
 
 function usage() {
   console.log(`
-  Agent Studio — several AI coding agents working as a team on one project,
+  Studio Floor — several AI coding agents working as a team on one project,
   with a human watching and directing through a browser.
 
     studio init                 set up the current directory as a studio project
