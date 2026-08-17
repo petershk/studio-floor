@@ -24,25 +24,46 @@ line in an append-only log, and every view is a projection of that log.
                    web UI                             ← what the human watches
 ```
 
-## Quick start
+## Quickstart
 
-You need Node 20+ and at least one agent CLI on your PATH
+Node 20+, and at least one agent CLI installed and logged in
 ([Claude Code](https://claude.com/claude-code), OpenAI Codex CLI, or Grok CLI).
 
 ```bash
-npm install -g studio-floor     # or: git clone … && npm link
+# 1. install the studio (no dependencies, nothing to build)
+git clone https://github.com/petershk/studio-floor.git
+cd studio-floor && npm link
 
-cd ~/my-project
-studio init                     # writes studio.config.json and PROJECT.md
-$EDITOR PROJECT.md              # say what you actually want built
-studio doctor                   # check the CLIs are installed
+# 2. make a directory for your project and put it under git FIRST
+mkdir ~/my-project && cd ~/my-project
+git init
+
+# 3. set it up
+studio init                # writes PROJECT.md and studio.config.json
+
+# 4. write PROJECT.md — this is the step that decides whether it works
+$EDITOR PROJECT.md
+
+# 5. check the CLIs are installed, then go
+studio doctor
 studio start
 ```
 
-Open **http://127.0.0.1:4173**.
+Open **http://127.0.0.1:4173**. `Ctrl-C` stops everything; nothing is lost,
+because the studio rebuilds its whole world from the log next time you start.
 
-`Ctrl-C` stops the agents and the server. Nothing is lost — the studio rebuilds
-its whole world from the log on the next start.
+Three things worth knowing before your first run:
+
+- **`git init` first.** Agents edit files and run commands. Git is the
+  difference between "undo that" and "it is gone".
+- **Set `runner.maxTurns` to 10–20** in `studio.config.json` for the first run.
+  The default is 200 per agent, and every turn is a real model call.
+- **`studio start --no-agents`** serves the UI with nothing running, so you can
+  look around before spending anything.
+
+The full walkthrough — what a good `PROJECT.md` looks like, what the first ten
+minutes should look like, cost control, and what to do when it misbehaves — is
+in **[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
 
 ## Configure the team
 
