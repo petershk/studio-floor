@@ -26,8 +26,13 @@ line in an append-only log, and every view is a projection of that log.
 
 ## Quickstart
 
-Node 20+, and at least one agent CLI installed and logged in
-([Claude Code](https://claude.com/claude-code), OpenAI Codex CLI, or Grok CLI).
+**New here? Follow [docs/QUICKSTART.md](docs/QUICKSTART.md)** — it starts from an
+empty machine and assumes nothing.
+
+The short version. You need Node 20+, git, and at least one agent CLI installed
+**and signed in** — [Claude Code](https://claude.com/claude-code),
+[OpenAI Codex](https://developers.openai.com/codex), or Grok. The studio launches
+those CLIs; it does not install or authenticate them.
 
 ```bash
 # 1. install the studio (no dependencies, nothing to build)
