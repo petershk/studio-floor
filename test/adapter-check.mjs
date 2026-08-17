@@ -15,30 +15,40 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ADAPTERS } from '../src/agents/adapters/index.mjs';
+import { ADAPTERS, getAdapter, providers } from '../src/agents/adapters/index.mjs';
 
-const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(ADAPTERS);
+const want = process.argv.slice(2).length ? process.argv.slice(2) : providers();
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-adapter-'));
 const PROMPT = 'Reply with exactly this and nothing else: STUDIO-OK. Do not use any tools.';
 
-const config = {
-  codexSandbox: 'read-only',
-  claudePermissionMode: process.env.STUDIO_CLAUDE_MODE || 'default',
-  grokPermissionMode: process.env.STUDIO_GROK_MODE || 'default',
-  disableMcp: true,
-};
+/**
+ * A throwaway agent record per provider. Read-only and permission-default on
+ * purpose: this check exists to prove the plumbing, not to let a probe touch
+ * anything.
+ */
+const agentFor = (provider) => ({
+  id: provider,
+  provider,
+  label: provider,
+  persona: '',
+  options: {
+    sandbox: 'read-only',
+    permissionMode: process.env.STUDIO_PERMISSION_MODE || 'default',
+    disableMcp: true,
+  },
+});
 
 let failures = 0;
 console.log(`\nadapter check  (cwd: ${cwd})\n`);
 
 for (const id of want) {
-  const adapter = ADAPTERS[id];
+  const adapter = getAdapter(id);
   if (!adapter) {
     console.log(`  SKIP  ${id} — no adapter`);
     continue;
   }
   const sessionId = adapter.newSession ? adapter.newSession() : null;
-  const args = adapter.args({ prompt: PROMPT, sessionId, fresh: true, config });
+  const args = adapter.args({ prompt: PROMPT, sessionId, fresh: true, agent: agentFor(id) });
   const started = Date.now();
   const result = await run(adapter, args, cwd);
   const secs = ((Date.now() - started) / 1000).toFixed(1);
