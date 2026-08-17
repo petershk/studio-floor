@@ -1,0 +1,38 @@
+# A studio running somewhere other than your laptop.
+#
+#   export STUDIO_TOKEN=$(openssl rand -hex 32)
+#   docker compose up --build
+#
+# Then open http://<host>:4173/?token=$STUDIO_TOKEN
+services:
+  studio:
+    build: .
+    ports:
+      # Bind to loopback and reach it over an SSH tunnel or a reverse proxy that
+      # terminates TLS. Change to "4173:4173" only behind something that does.
+      - "127.0.0.1:4173:4173"
+    volumes:
+      # The project the agents work on. Point this at your repository.
+      - ./workspace:/workspace
+      # The event log. Losing this loses the team's entire memory, so it is a
+      # named volume rather than a bind mount into a temp directory.
+      - studio-state:/state
+      # Provider credentials, read-only, mounted rather than baked in.
+      - ${HOME}/.claude:/root/.claude:ro
+      - ${HOME}/.codex:/root/.codex:ro
+    environment:
+      # Required. The server rejects every /api/* route without it.
+      STUDIO_TOKEN: ${STUDIO_TOKEN:?set STUDIO_TOKEN before starting}
+      STUDIO_HOST: 0.0.0.0
+      STUDIO_PROJECT_ROOT: /workspace
+      STUDIO_STATE_DIR: /state
+      # How the agents' CLI reaches the server from inside the same container.
+      STUDIO_URL: http://127.0.0.1:4173
+    restart: unless-stopped
+    # Agents run shell commands. This is a boundary, not a sandbox — see
+    # docs/CLOUD.md before pointing this at anything you care about.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  studio-state:

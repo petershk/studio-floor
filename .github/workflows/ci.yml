@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is not decoration here: the command-line length guard and the
+        # .cmd shim handling in `studio doctor` only fail on Windows.
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No dependencies to install. That is deliberate and worth keeping.
+      - run: node --version
+      - run: npm test
+      - name: CLI smoke
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/proj"
+          node bin/studio.mjs --version
+          node bin/studio.mjs init --project "$RUNNER_TEMP/proj"
+          test -f "$RUNNER_TEMP/proj/studio.config.json"
+          test -f "$RUNNER_TEMP/proj/PROJECT.md"
+          # doctor exits non-zero when no provider CLI is installed, which is
+          # the correct behaviour on a runner and not a test failure.
+          node bin/studio.mjs doctor --project "$RUNNER_TEMP/proj" || true

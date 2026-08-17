@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Agent Studio</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot" id="conn-dot"></span>
+    <strong id="studio-name">Studio</strong>
+    <span class="muted" id="studio-sub">connecting…</span>
+  </div>
+  <div class="glance" id="glance"></div>
+  <div class="topcontrols">
+    <button id="btn-pause" class="btn">Pause all</button>
+    <button id="btn-resume" class="btn">Resume all</button>
+    <button id="btn-stop" class="btn danger">Stop all</button>
+  </div>
+</header>
+
+<main>
+  <!-- ---------------------------------------------------------- left rail -->
+  <aside class="rail left">
+    <section class="panel">
+      <h2>Agents</h2>
+      <div id="agents"></div>
+    </section>
+
+    <section class="panel attention" id="attention-panel">
+      <h2 class="clickable" id="attention-open" role="button" tabindex="0" title="Show everything that is waiting on you">Needs you <span class="badge" id="attention-count">0</span></h2>
+      <div class="hint" id="attention-hint"></div>
+      <div id="attention"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Direction</h2>
+      <input id="priority-input" class="input" placeholder="set a priority for the team…">
+      <button id="priority-send" class="btn wide">Set priority</button>
+    </section>
+  </aside>
+
+  <!-- ------------------------------------------------------------- centre -->
+  <section class="centre">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="conversation">Conversation</button>
+      <button class="tab" data-tab="timeline">Timeline</button>
+      <button class="tab" data-tab="tasks">Tasks</button>
+      <button class="tab" data-tab="decisions">Decisions &amp; debates</button>
+      <button class="tab" data-tab="raw">Raw</button>
+    </nav>
+
+    <div class="tabpanes">
+      <div class="pane active" id="pane-conversation">
+        <div class="feed" id="conversation"></div>
+      </div>
+
+      <div class="pane" id="pane-timeline">
+        <div class="feed" id="timeline"></div>
+      </div>
+
+      <div class="pane" id="pane-tasks">
+        <form class="intervene-bar" id="new-task-form">
+          <input id="new-task-title" class="input" placeholder="assign a new task…" autocomplete="off">
+          <select id="new-task-owner" class="input small">
+            <option value="">unassigned</option>
+          </select>
+          <button class="btn" type="submit">Assign task</button>
+        </form>
+        <div class="board" id="board"></div>
+      </div>
+
+      <div class="pane" id="pane-decisions">
+        <form class="intervene-bar" id="new-debate-form">
+          <input id="new-debate-q" class="input" placeholder="question the team should debate…" autocomplete="off">
+          <select id="new-debate-task" class="input small">
+            <option value="">no related task</option>
+          </select>
+          <button class="btn" type="submit">Request debate</button>
+        </form>
+        <div class="feed" id="decisions"></div>
+      </div>
+
+      <div class="pane" id="pane-raw">
+        <div class="rawbar">
+          <select id="raw-agent" class="input small">
+            <option value="">all agents</option>
+          </select>
+          <label class="chk"><input type="checkbox" id="raw-text" checked> text</label>
+          <label class="chk"><input type="checkbox" id="raw-reasoning" checked> reasoning</label>
+          <label class="chk"><input type="checkbox" id="raw-tools" checked> tools</label>
+          <label class="chk"><input type="checkbox" id="raw-native"> everything else</label>
+          <label class="chk"><input type="checkbox" id="raw-derived" checked> derived legacy (not agent output)</label>
+          <label class="chk"><input type="checkbox" id="raw-follow" checked> keep newest visible</label>
+          <span class="muted" id="raw-note"></span>
+        </div>
+        <div class="feed raw" id="raw"></div>
+      </div>
+    </div>
+
+    <form class="composer" id="composer">
+      <select id="say-to" class="input small">
+        <option value="">everyone</option>
+      </select>
+      <input id="say-text" class="input" placeholder="say something to the team — they will see it on their next turn" autocomplete="off">
+      <button class="btn primary" type="submit">Send</button>
+    </form>
+  </section>
+
+  <!-- --------------------------------------------------------- right rail -->
+  <aside class="rail right">
+    <section class="panel">
+      <h2>Project state</h2>
+      <div id="health"></div>
+    </section>
+    <section class="panel">
+      <h2>Open questions</h2>
+      <div id="questions"></div>
+    </section>
+    <section class="panel">
+      <h2>Discoveries</h2>
+      <div id="discoveries"></div>
+    </section>
+    <section class="panel">
+      <h2>Recent file activity</h2>
+      <div id="files"></div>
+    </section>
+  </aside>
+</main>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-head">
+    <strong id="drawer-title"></strong>
+    <button class="btn ghost" id="drawer-close" type="button" aria-label="Close details">close</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "name": "agent-studio",
+  "version": "0.1.0",
+  "description": "Several AI coding agents working as a team on one project, with a human watching and directing through a browser.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "studio": "./bin/studio.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./adapters": "./src/agents/adapters/index.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node bin/studio.mjs start",
+    "doctor": "node bin/studio.mjs doctor",
+    "test": "node test/run.mjs",
+    "smoke": "node test/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "multi-agent",
+    "orchestration",
+    "claude-code",
+    "codex",
+    "grok",
+    "autonomous"
+  ],
+  "dependencies": {},
+  "devDependencies": {}
+}

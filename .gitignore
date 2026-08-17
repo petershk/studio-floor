@@ -1,0 +1,20 @@
+# Studio runtime state. The event log is the studio's memory of a particular
+# run, not part of the tool. Delete it to reset a studio; never commit it.
+.studio/
+
+# A project's own config and brief belong to that project, not to this repo.
+# They are ignored here so a clone used as its own workspace stays clean.
+/studio.config.json
+/PROJECT.md
+
+node_modules/
+npm-debug.log*
+*.tsbuildinfo
+
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+.idea/
+.vscode/

@@ -1,0 +1,44 @@
+{
+  "_comment": "Four agents on two providers, each with a different job. Copy to your project as studio.config.json.",
+  "project": {
+    "name": "Example Project",
+    "brief": "PROJECT.md",
+    "goal": "Replace this with one paragraph on what the team is building."
+  },
+  "agents": [
+    {
+      "id": "architect",
+      "provider": "claude",
+      "label": "Architect",
+      "persona": "architect"
+    },
+    {
+      "id": "builder",
+      "provider": "claude",
+      "label": "Builder",
+      "persona": "implementer",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "id": "breaker",
+      "provider": "claude",
+      "label": "Breaker",
+      "persona": "You are the team's adversary. Your job is to find the exploit, the degenerate case, and the assumption nobody checked, and to say the uncomfortable thing early. Do not implement features. If you cannot find a real problem with something, say so plainly rather than manufacturing a concern."
+    },
+    {
+      "id": "scout",
+      "provider": "codex",
+      "label": "Scout",
+      "persona": "researcher",
+      "sandbox": "read-only"
+    }
+  ],
+  "runner": {
+    "maxTurns": 60,
+    "staggerMs": 8000
+  },
+  "server": {
+    "port": 4173,
+    "host": "127.0.0.1"
+  }
+}
