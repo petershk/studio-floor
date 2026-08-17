@@ -102,9 +102,11 @@ model wearing five different hats.
 Built-in personas: `implementer`, `architect`, `adversary`, `researcher`,
 `integrator`. Any other string is used verbatim, so write your own.
 
-Every persona ends with *"you are not obliged to accept that framing"* on
-purpose — an agent that believes it is better at something else should say so on
-its first turn. Give them genuinely different jobs. Productive disagreement is
+Every **built-in** persona ends with *"You are not obliged to accept that
+framing — tell the team what you actually think you are best at."* An agent that
+believes it is better at something else should say so on its first turn. A
+persona you write yourself is passed through untouched, so add that sentence if
+you want the same effect. Give them genuinely different jobs. Productive disagreement is
 the whole point, and three agents handed the same framing will simply agree with
 each other.
 
@@ -126,7 +128,9 @@ export default {
   id: 'gemini',
   command: 'gemini',
   newSession: () => crypto.randomUUID(),
-  args: ({ prompt, sessionId, fresh }) => [...],
+  args: ({ prompt, sessionId, fresh }) => [
+    fresh ? '--session' : '--resume', sessionId, '--print', prompt,
+  ],
   parse: (line) => [{ kind: 'raw.text', data: { text: line.text } }],
 };
 ```
@@ -135,6 +139,10 @@ export default {
 { "adapters": ["./adapters/gemini.mjs"],
   "agents": [{ "id": "gem", "provider": "gemini" }] }
 ```
+
+Paths resolve against your project directory; a bare package name is imported
+normally, so an adapter can ship on npm. `studio doctor` will list `gemini`
+among its providers and then check the binary is installed.
 
 See [docs/ADAPTERS.md](docs/ADAPTERS.md).
 
@@ -219,7 +227,7 @@ every file on disk untouched.
 ## Tests
 
 ```bash
-npm test                        # 19 files, offline, free, ~30s
+npm test                        # 20 files, offline, free, ~30s
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```

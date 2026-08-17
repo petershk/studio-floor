@@ -153,6 +153,23 @@ export function normaliseConfig(raw = {}) {
   });
 
   if (!cfg.agents.length) throw new Error('studio: the roster is empty — configure at least one agent');
+
+  // Project-supplied adapter modules.
+  //
+  // This used to be dropped on the floor: defaultConfig() has no `adapters` key
+  // and nothing copied it across, so `CONFIG.adapters` was always undefined, the
+  // `if (CONFIG.adapters?.length)` guard in the launcher never fired, and
+  // loadUserAdapters() was correct code that nothing ever called. Every config
+  // naming a custom provider therefore failed with "no adapter for provider X"
+  // and the studio refused to start — including the example printed in the
+  // README. The whole pluggable-provider feature was dead on arrival.
+  if (legacy.adapters !== undefined) {
+    if (!Array.isArray(legacy.adapters) || legacy.adapters.some((a) => typeof a !== 'string' || !a.trim())) {
+      throw new Error('studio: `adapters` must be a list of module paths or package names');
+    }
+    cfg.adapters = legacy.adapters.map((a) => a.trim());
+  }
+
   return cfg;
 }
 
