@@ -89,6 +89,12 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     shuttingDown = true;
     console.log('\n  stopping agents…');
     await runner.stopAll('studio shut down');
-    setTimeout(() => process.exit(0), 500);
+    setTimeout(() => {
+      // Every append already fsyncs, so nothing is at risk here — this is the
+      // same handle discipline the tests need, kept in one place so the log is
+      // never left open by a process that has finished with it.
+      store.close();
+      process.exit(0);
+    }, 500);
   });
 }

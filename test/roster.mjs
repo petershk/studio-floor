@@ -85,7 +85,7 @@ for (const id of expected) {
   check(`empty projection includes ${id}`, Boolean(state.agents[id]), Object.keys(state.agents).join(','));
 }
 check('the projection has no leftover default agents', !state.agents.codex && !state.agents.grok);
-if (store.fd) fs.closeSync(store.fd);
+store.close();
 
 // --------------------------------------------------------- prompts follow suit
 

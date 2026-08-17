@@ -203,6 +203,20 @@ check('every event is on disk as one line of JSON', logLines.length === before.s
 check('nothing in the log is unparseable', logLines.every((l) => { try { JSON.parse(l); return true; } catch { return false; } }));
 
 server.close();
+
+// Close both stores before deleting their directory.
+//
+// Each Store holds an open append handle on events.jsonl, and Windows will not
+// remove a directory containing an open file — rmSync fails with ENOTEMPTY,
+// which is not a phrase that suggests "you leaked a file descriptor". This
+// passed on Linux and on Windows with Node 22 (whose rmSync retries) and failed
+// only on Windows with Node 20, so the CI matrix is what caught it.
+store.close();
+store2.close();
+
 console.log(`\n${failures ? `${failures} FAILED` : 'all checks passed'}\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+
+// Retries as well as the close: on Windows a handle can survive its close by a
+// moment when an indexer or scanner has the file open behind us.
+fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 process.exit(failures ? 1 : 0);
