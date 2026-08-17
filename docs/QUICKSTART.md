@@ -18,7 +18,7 @@ and writing down what you actually want built.
 8. [Write PROJECT.md](#8-write-projectmd--the-step-that-matters)
 9. [Configure the team](#9-configure-the-team)
 10. [Check the wiring](#10-check-the-wiring)
-11. [Dry run](#11-dry-run-costs-nothing)
+11. [Open the studio and set up the team](#11-open-the-studio-and-set-up-the-team-costs-nothing)
 12. [Start the team](#12-start-the-team)
 13. [Driving, stopping, resetting](#13-driving-stopping-and-resetting)
 14. [Troubleshooting](#14-troubleshooting)
@@ -388,13 +388,16 @@ turn without needing you.
 
 ## 9. Configure the team
 
-You can do this in the **Settings** tab of the web UI once the studio is running
-(step 11) — add and remove agents, pick personas from a menu, set the turn
-budget — and if that sounds better than editing JSON, skip ahead and come back.
-The panel writes this same file.
+`studio init` wrote a default roster: three agents on three different providers.
+You almost certainly want to change it, and there are two ways.
 
-Open `studio.config.json`. `studio init` wrote a default: three agents on three
-different providers.
+**The Settings panel** — a form in the studio's own web UI. It needs the studio
+running, so it happens in step 11. If you would rather not touch JSON at all,
+read the concepts below, then go to step 10 and do the actual editing there.
+
+**The file** — `studio.config.json`. Same fields, and the panel writes this file,
+so the two are interchangeable. The file is also the *only* place a few things
+can be set; see "What the panel will not change" below.
 
 ```json
 {
@@ -454,6 +457,27 @@ grows faster than output, and so does the bill. Start with three.
 
 Every configuration key is documented in [CONFIG.md](CONFIG.md).
 
+### What the panel will not change
+
+Four things are editable only in the file, on purpose:
+
+| Field | What it does |
+| --- | --- |
+| `command` | which executable to run for that agent |
+| `extraArgs` | extra arguments handed to that CLI |
+| `env` | environment variables for that agent's process |
+| `adapters` | JavaScript files imported at boot |
+
+Those decide what program runs on your machine. The studio's web server answers
+on loopback with a permissive CORS policy, so any page you have open in another
+tab can send it requests — a settings form that could write those fields would
+be remote code execution with a Save button. Cross-origin writes to the config
+are rejected outright for the same reason.
+
+Editing in the panel does not disturb them. They are preserved per agent,
+matched by id, so saving the roster from the UI will not delete a `command` you
+hand-wrote.
+
 ### Optional: a first run that cannot change anything
 
 If you would rather watch before trusting it, make the agents read-only. They
@@ -465,6 +489,8 @@ will still plan, talk, disagree, and record decisions — they just cannot write
   { "id": "scout",     "provider": "codex",  "sandbox": "read-only" }
 ]
 ```
+
+Both fields are in the panel too, as **Permissions** and **Sandbox**.
 
 ---
 
@@ -503,17 +529,18 @@ are logged in — that shows up on the first turn.
 
 ---
 
-## 11. Dry run (costs nothing)
+## 11. Open the studio and set up the team (costs nothing)
 
 ```bash
 studio start --no-agents
 ```
 
-This starts the web server with **no agents running**, so no tokens are spent.
+This starts the web server with **no agents running**, so no tokens are spent
+and nothing touches your files.
 
 Open **http://127.0.0.1:4173**.
 
-Take a minute to learn the layout:
+### Learn the layout
 
 | Area | What it shows |
 | --- | --- |
@@ -525,10 +552,42 @@ Take a minute to learn the layout:
 | Tasks | the board, proposed through done |
 | Decisions | settled questions and open debates |
 | Raw | the lowest-level output of each CLI — where you look when confused |
-| Settings | the roster and the runner tunables, as a form instead of JSON |
+| **Settings** | the roster and runner tunables, as a form instead of JSON |
 | bottom bar | the box you type into to talk to the team |
 
-Press `Ctrl-C` in the terminal when you are done looking.
+### Build your roster in Settings
+
+Open the **Settings** tab. This is the config file as a form.
+
+- **Project** — name, brief path, and an optional one-paragraph goal.
+- **The team** — one card per agent. Edit the id, pick a provider and a persona
+  from menus, set a model, reorder with ↑ ↓, remove, or **Add an agent**.
+- **Runner** — turn budget, timeouts, cooldown, stagger, idle backoff.
+
+Do the two things from step 9 here: delete any agent whose provider you did not
+install, and set the turn budget to 10–20. Then **Save**.
+
+### Read what it tells you after saving
+
+The panel does not pretend everything took effect. Each save reports:
+
+- **Applied now** — the runner re-reads its own settings every loop, so turn
+  budget, timeouts, cooldown, stagger and backoff take hold immediately.
+- **Restart required** — the roster is resolved once when the studio starts and
+  is baked into several places, so adding, removing or renaming an agent needs a
+  restart before it means anything. Changing the brief path does too.
+
+If the file and the running studio have drifted apart, a banner says so until
+you restart. That banner is expected after any roster change — it is the panel
+being honest, not an error.
+
+Fields are tagged `live` or `restart` so you can see which is which before you
+save.
+
+### Then stop it
+
+Press `Ctrl-C` in the terminal. Your changes are in `studio.config.json` and the
+next start picks them up.
 
 ---
 
@@ -639,6 +698,33 @@ timeouts or crashes in Raw. Consider raising `runner.turnTimeoutMs`.
 
 **They changed something I did not want changed**
 `git diff`, then `git checkout -- <file>`. This is why step 6 exists.
+
+**I changed the roster in Settings and nothing happened**
+Expected. The roster is resolved once when the studio starts, so adding,
+removing or renaming an agent needs a restart. The panel says so on save, and
+keeps a banner up until the running studio matches the file. `Ctrl-C` and
+`studio start`.
+
+**Settings says my save was refused**
+It lists the reason per field. The common ones: an id with a capital or a space
+(ids are lowercase letters, digits and dashes), two agents with the same id, or a
+provider with no adapter installed. That last one is refused deliberately —
+saving it would write a config that crashes `studio start` before it prints
+anything.
+
+**Settings will not let me set `command` / `extraArgs` / `env`**
+By design — see step 9. Edit `studio.config.json` directly. Anything you set
+there survives later edits made in the panel.
+
+**Settings shows "the config file could not be read"**
+The JSON is malformed. The panel refuses to overwrite a file it cannot parse,
+because that would throw away whatever is in it. Fix the file by hand, then
+press **Reload from file**.
+
+**My changes vanished**
+The panel does not save as you type. If you edit and switch tabs without pressing
+**Save**, the draft is kept; if you press **Reload from file**, it is discarded
+after a confirmation.
 
 **The page is blank or unstyled**
 Hard-refresh (`Ctrl-Shift-R`). If it persists, check the browser console and
