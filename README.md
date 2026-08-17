@@ -3,11 +3,11 @@
 Several AI coding agents working as a **team** on one project, in one directory,
 while a human watches and directs through a browser.
 
-Not "run three prompts in parallel". The agents divide the work themselves, hand
-each other tasks, argue about approach, review each other's output, record what
-they settled, and escalate the things that genuinely need you. All of it is
-visible, live, and replayable — because every single thing that happens is one
-line in an append-only log, and every view is a projection of that log.
+The agents divide the work themselves, hand each other tasks, argue about
+approach, review each other's output, record what they settled, and escalate the
+things that genuinely need you. You watch all of it happen live and can step in
+at any point — every message, task, decision and tool call is one line in an
+append-only log, and every view is a projection of that log.
 
 ```
   claude            codex             grok           ← real agent CLIs, one process per turn
@@ -32,10 +32,10 @@ empty machine and assumes nothing.
 The short version. You need Node 20+, git, and at least one agent CLI installed
 **and signed in** — [Claude Code](https://claude.com/claude-code),
 [OpenAI Codex](https://developers.openai.com/codex), or Grok. The studio launches
-those CLIs; it does not install or authenticate them.
+those CLIs; you install them and sign in yourself.
 
 ```bash
-# 1. install the studio (no dependencies, nothing to build)
+# 1. install the studio (zero dependencies — clone and link, that is the build)
 #    Put the clone somewhere permanent — npm link points at it.
 git clone https://github.com/petershk/studio-floor.git
 cd studio-floor
@@ -60,8 +60,9 @@ studio doctor
 studio start
 ```
 
-Open **http://127.0.0.1:4173**. `Ctrl-C` stops everything; nothing is lost,
-because the studio rebuilds its whole world from the log next time you start.
+Open **http://127.0.0.1:4173**. `Ctrl-C` stops everything, and the next start
+rebuilds the studio's entire world from the log — conversation, tasks, decisions
+and all.
 
 Three things worth knowing before your first run:
 
@@ -70,8 +71,8 @@ Three things worth knowing before your first run:
   repo — it has no remote and nothing to do with the studio's repo.
 - **Set `runner.maxTurns` to 10–20** in `studio.config.json` for the first run.
   The default is 200 per agent, and every turn is a real model call.
-- **`studio start --no-agents`** serves the UI with nothing running, so you can
-  look around before spending anything.
+- **`studio start --no-agents`** serves the UI on its own, so you can explore it
+  for free before a single token is spent.
 
 The full walkthrough — what a good `PROJECT.md` looks like, what the first ten
 minutes should look like, cost control, and what to do when it misbehaves — is
@@ -81,7 +82,7 @@ in **[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
 
 `studio.config.json` is the roster. An agent has an **id** (what the team calls
 it), a **provider** (which CLI to launch), and a **persona** (what it is for).
-An id is not a provider, which is the point: you can run five agents on one
+The id and the provider are separate on purpose: five agents can run on one
 model wearing five different hats.
 
 ```json
@@ -102,20 +103,22 @@ Built-in personas: `implementer`, `architect`, `adversary`, `researcher`,
 `integrator`. Any other string is used verbatim, so write your own.
 
 Every persona ends with *"you are not obliged to accept that framing"* on
-purpose. A team where every agent was told it is a strong implementer produces
-three implementers who agree with each other, which is the failure this whole
-project exists to avoid.
+purpose — an agent that believes it is better at something else should say so on
+its first turn. Give them genuinely different jobs. Productive disagreement is
+the whole point, and three agents handed the same framing will simply agree with
+each other.
 
-You can edit all of this in the **Settings** tab rather than the file. The panel
-reports which changes applied live and which need a restart, and refuses the
-fields that decide *which program runs* — see [docs/CONFIG.md](docs/CONFIG.md)
-for every key and why that line is drawn where it is.
+The **Settings** tab edits all of this as a form. It tells you exactly which
+changes took effect immediately and which need a restart, and confines itself to
+fields that cannot change *which program runs* — see
+[docs/CONFIG.md](docs/CONFIG.md) for every key and why that line sits where it
+does.
 
 ## Add a provider
 
 An adapter is one file: how to launch the CLI fresh, how to resume the session
-it opened last turn, and how to read its stdout. Nothing else in the studio
-knows a vendor exists.
+it opened last turn, and how to read its stdout. It is the only code in the
+studio that knows a vendor exists — everything else stays provider-agnostic.
 
 ```js
 // adapters/gemini.mjs
@@ -147,7 +150,7 @@ See [docs/ADAPTERS.md](docs/ADAPTERS.md).
 | tasks | the board, proposed → done, with full history per task |
 | decisions & debates | open disagreements and settled questions, with reasoning |
 | raw | the lowest-level observable activity, filterable by agent and kind |
-| settings | the roster and runner tunables as a form — no JSON editing required |
+| settings | the roster and runner tunables, edited visually as a form |
 
 Controls: pause, resume, stop, per-agent start/stop/nudge, set a priority, send
 a message to one agent or all, and answer any escalation.
@@ -156,32 +159,32 @@ a message to one agent or all, and answer any escalation.
 
 **The log is the only truth.** Everything is one line in `.studio/events.jsonl`.
 Agents, tasks, decisions, debates, the timeline and the raw feed are all
-projections rebuilt from it on startup. Nothing can appear in the interface that
-did not actually happen, and restarting loses nothing. The server is the only
-writer, so concurrent agents can never interleave a half-written line.
+projections rebuilt from it on startup. Everything the interface shows actually
+happened, and a restart restores all of it. The server is the sole writer, so
+every line from every concurrent agent lands whole.
 
 **Agents run in bounded turns.** Each agent loops headless turns against its own
 persistent, resumable session. Between turns it blocks on its inbox, so it wakes
-because someone addressed it — not on a timer. The runner injects what changed:
-the inbox, the brief, and why it was woken. That is what makes separate vendor
-CLIs behave like a team rather than several agents answering the same prompt.
+the moment someone addresses it rather than ticking on a timer. The runner hands
+it what changed — the inbox, the brief, and why it was woken. That injection is
+what turns separate vendor CLIs into a team rather than several agents answering
+the same prompt.
 
-A turn that produces no studio activity three times running puts that agent to
-sleep until something happens, so an idle studio does not burn tokens re-reading
-its own empty inbox.
+After three turns without studio activity an agent sleeps until something
+happens, so an idle studio costs you nothing.
 
-**Raw activity is never discarded.** `raw.*` events carry the lowest level each
-CLI exposes: text, reasoning where the vendor emits it, tool calls, results,
-usage, errors. Full JSONL of every turn is also written to
-`.studio/transcripts/<agent>-turn-NNN.jsonl`. Where a vendor does not expose
-something — Codex's internal reasoning, for instance — the studio shows nothing
-rather than inventing it.
+**Every raw event is kept.** `raw.*` events carry the lowest level each CLI
+exposes: text, reasoning where the vendor emits it, tool calls, results, usage,
+errors. The full JSONL of every turn also lands in
+`.studio/transcripts/<agent>-turn-NNN.jsonl`. The studio reports exactly what the
+vendor exposed and stays silent about the rest — where Codex keeps its internal
+reasoning private, you see that it is private.
 
-**Nothing is claimed that was not observed.** Inbox items are acknowledged only
-by a turn that actually finished; a crashed turn's items come back marked as a
-redelivery. If a prompt has to be shortened to fit the OS command-line limit,
-the acknowledgement fails closed. These are not hypotheticals — each one is a
-bug that silently ate a human directive before it was fixed.
+**Every claim is backed by something observed.** Inbox items are acknowledged
+only by a turn that actually finished; a crashed turn's items come back marked as
+a redelivery. If a prompt has to be shortened to fit the OS command-line limit,
+the acknowledgement fails closed. Each of these is a real bug that silently ate a
+human directive before it was caught.
 
 More in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -192,8 +195,8 @@ directly. See [docs/CLOUD.md](docs/CLOUD.md) for the Docker image, the state
 volume, the auth token, and the provider-credential problem you have to solve
 before exposing it.
 
-**Do not bind this to a public address without `STUDIO_TOKEN`.** Anyone who can
-reach the API can direct agents that run shell commands as you.
+**Set `STUDIO_TOKEN` before you bind this to any public address.** Anyone who
+can reach the API can direct agents that run shell commands as you.
 
 ## Safety
 
@@ -210,13 +213,13 @@ To watch before trusting it, start read-only:
 ]}
 ```
 
-They will still plan, talk, disagree and decide. They just will not change
-anything.
+They plan, talk, disagree and decide exactly as they otherwise would, and leave
+every file on disk untouched.
 
 ## Tests
 
 ```bash
-npm test                        # 19 files, no tokens spent, no network
+npm test                        # 19 files, offline, free, ~30s
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```
