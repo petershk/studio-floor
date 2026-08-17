@@ -34,7 +34,10 @@ Node 20+, and at least one agent CLI installed and logged in
 git clone https://github.com/petershk/studio-floor.git
 cd studio-floor && npm link
 
-# 2. make a directory for your project and put it under git FIRST
+# 2. make a directory for your project and put it under git FIRST.
+#    This is a new local repo for YOUR project — unrelated to studio-floor,
+#    which is the tool you just installed. Already have a project? Skip the
+#    init and cd into it instead.
 mkdir ~/my-project && cd ~/my-project
 git init
 
@@ -55,7 +58,8 @@ because the studio rebuilds its whole world from the log next time you start.
 Three things worth knowing before your first run:
 
 - **`git init` first.** Agents edit files and run commands. Git is the
-  difference between "undo that" and "it is gone".
+  difference between "undo that" and "it is gone". This is your project's own
+  repo — it has no remote and nothing to do with the studio's repo.
 - **Set `runner.maxTurns` to 10–20** in `studio.config.json` for the first run.
   The default is 200 per agent, and every turn is a real model call.
 - **`studio start --no-agents`** serves the UI with nothing running, so you can

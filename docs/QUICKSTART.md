@@ -51,17 +51,53 @@ cd ~/my-project
 
 ## 3. Put it under git — do this before the agents run
 
+This is a **new, empty, local repo for your project**. It has no remote and no
+connection to `studio-floor` — that is the tool, installed separately in step 1.
+The two are unrelated, and the studio never touches its own repo.
+
 ```bash
 git init
+git add -A && git commit -m "before letting the team at it"
 ```
 
 **Do not skip this.** Agents edit files, run commands, and delete things. A git
 repository is the difference between "undo that" and "it is gone". Commit
-whenever the team reaches a state you would be sad to lose:
+whenever the team reaches a state you would be sad to lose.
+
+Git is not *required* — the studio works in a plain directory — but running
+autonomous agents without an undo button is a decision you will regret exactly
+once.
+
+### If you already have a project
+
+Then you do not want `git init` at all.
+
+**Already on GitHub** — clone it and set the studio up inside it:
 
 ```bash
-git add -A && git commit -m "before letting the team at it"
+git clone https://github.com/you/your-project.git
+cd your-project
 ```
+
+**Already local and under git** — nothing to do. Just `cd` there.
+
+Either way, `studio init` in the next step adds `PROJECT.md` and
+`studio.config.json` to the repo you already have. Commit them or gitignore
+them, whichever you prefer.
+
+### Publishing your project later
+
+Nothing about the studio needs your project to be on a remote. When you want it
+there:
+
+```bash
+git add -A && git commit -m "initial"
+git branch -M main
+gh repo create your-project --private --source=. --remote=origin --push
+```
+
+The `git branch -M main` matters if your git still defaults to `master` — `gh`
+creates the remote expecting `main` and the push fails confusingly otherwise.
 
 ## 4. Set it up
 
