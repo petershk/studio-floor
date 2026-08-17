@@ -16,7 +16,10 @@ src/
     server.mjs     the single writer; HTTP + SSE
   cli/
     studio.mjs     the channel agents speak through
-  web/             what the human watches
+  bin/
+    start.mjs      the launcher
+  web/             what the human watches, including the settings panel
+  index.mjs        the programmatic entry point
 ```
 
 ## The log is the only truth
@@ -131,6 +134,37 @@ Every unbounded section of it is capped (`BRIEF_LIMITS` in `runner.mjs`). They
 were all uncapped once; the brief grew with the studio's history until the
 command line crossed the OS limit and every agent failed to launch at the same
 moment. Truncation says plainly what was cut and how to get the rest.
+
+## Configuration is a write API
+
+The settings panel edits `studio.config.json` over HTTP, which makes it a write
+API to the thing that decides which programs this machine runs. Three properties
+keep that safe, and all three are load-bearing.
+
+**An allowlist, not a filter.** `AGENT_EDITABLE` and friends in `core/config.mjs`
+name what may be written. Per-agent `command`, `extraArgs` and `env`, and the
+top-level `adapters` list, are refused — they choose the executable, its
+arguments, its environment, and which JavaScript is imported at boot. The server
+sets `Access-Control-Allow-Origin: *`, so a writable version of those is remote
+code execution reachable from any tab the human has open.
+
+**Origin is checked on write.** A browser always sends `Origin` on a
+cross-origin POST and cannot be talked out of it, so a present-and-foreign
+Origin is rejected. An absent Origin is curl or the CLI — callers who can
+already run code here.
+
+**Edits patch the file as written.** Not the normalised config. Writing the
+normalised form back would bake in every default and drop the fields the API
+refuses to manage, so saving the roster from the UI would silently delete a
+hand-written `command`. Unmanaged fields are carried across per agent, matched
+by id.
+
+What can be applied without a restart is decided by what the runner actually
+re-reads: it consults `this.config` every loop iteration, so timings are live,
+while `AGENT_IDS` is resolved once at import into the store, the server and the
+runner's agent map, so the roster is not. The panel reports which happened
+rather than implying everything took effect, and every save lands in the event
+log as a `human.control` event.
 
 ## The web UI
 

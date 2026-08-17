@@ -36,14 +36,17 @@ those CLIs; it does not install or authenticate them.
 
 ```bash
 # 1. install the studio (no dependencies, nothing to build)
+#    Put the clone somewhere permanent — npm link points at it.
 git clone https://github.com/petershk/studio-floor.git
-cd studio-floor && npm link
+cd studio-floor
+npm link
 
 # 2. make a directory for your project and put it under git FIRST.
 #    This is a new local repo for YOUR project — unrelated to studio-floor,
 #    which is the tool you just installed. Already have a project? Skip the
 #    init and cd into it instead.
-mkdir ~/my-project && cd ~/my-project
+mkdir ~/my-project
+cd ~/my-project
 git init
 
 # 3. set it up
@@ -213,7 +216,7 @@ anything.
 ## Tests
 
 ```bash
-npm test                        # 18 files, no tokens spent, no network
+npm test                        # 19 files, no tokens spent, no network
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```

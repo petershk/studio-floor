@@ -15,7 +15,10 @@ Agents in this studio run shell commands with whatever credentials the container
 holds. Putting that on the internet means:
 
 - **Anyone who reaches the API can direct them.** `/api/human/*` routes are
-  indistinguishable from you. `STUDIO_TOKEN` is not optional off loopback.
+  indistinguishable from you, and `/api/config` can change the roster, the
+  sandbox each agent runs under, and how many turns it may take.
+  `STUDIO_TOKEN` is not optional off loopback. It is the only thing standing
+  between a stranger and your agents.
 - **The container is a blast radius, not a sandbox.** It stops an agent
   wrecking your laptop. It does not stop one exfiltrating the credentials
   mounted into it, or spending your provider budget.

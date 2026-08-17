@@ -72,9 +72,19 @@ your package manager.
 
 ### A terminal you are comfortable in
 
-Any shell works. On Windows, PowerShell and Git Bash both work; the commands in
-this guide are shown in a POSIX style, and the only difference in PowerShell is
-that `~` and `$EDITOR` are not available — use full paths and `notepad` instead.
+Commands in this guide are written for a POSIX shell — macOS or Linux terminal,
+or Git Bash on Windows. They work as printed there.
+
+**In Windows PowerShell, three of them do not.** `~` and `mkdir -p` are fine;
+these are not:
+
+| POSIX | PowerShell |
+| --- | --- |
+| `a && b` | `a; if ($?) { b }` — `&&` is a parser error in PowerShell 5.1 |
+| `rm -rf dir` | `Remove-Item -Recurse -Force dir` |
+| `$EDITOR file` | `notepad file` |
+
+Where a step is easy to get wrong, the PowerShell version is given alongside.
 
 ---
 
@@ -232,19 +242,16 @@ cd your-project
 
 Just `cd` into it. If it is not under version control yet, run `git init` now.
 
-### Commit before you let anyone in
+### Why this matters
 
-```bash
-git add -A
-git commit -m "before letting the team at it"
-```
+Agents edit files, run shell commands, and delete things. Git is the difference
+between "undo that" and "it is gone". The studio does not require it — it works
+fine in a plain directory — but running autonomous agents without an undo button
+is a decision you make exactly once.
 
-**Do this.** Agents edit files, run shell commands, and delete things. Git is
-the difference between "undo that" and "it is gone". The studio does not require
-git — it works fine in a plain directory — but running autonomous agents without
-an undo button is a decision you make exactly once.
-
-Commit again whenever the team reaches a state you would be sad to lose.
+You will make the first commit at the end of step 7, once there is something to
+commit. A brand-new directory is empty, and `git commit` on an empty repository
+just fails with `nothing to commit`.
 
 <details>
 <summary>Publishing your project to GitHub later</summary>
@@ -252,7 +259,8 @@ Commit again whenever the team reaches a state you would be sad to lose.
 Nothing about the studio needs a remote. When you want one:
 
 ```bash
-git add -A && git commit -m "initial"
+git add -A
+git commit -m "initial"
 git branch -M main
 gh repo create your-project --private --source=. --remote=origin --push
 ```
@@ -283,8 +291,19 @@ A third thing appears once you start: `.studio/`, holding the event log — the
 team's entire memory. You do not need to gitignore it; the studio writes a
 `.gitignore` inside it on creation so git never sees it.
 
-Both `PROJECT.md` and `studio.config.json` are yours. Commit them if you want
-the team's brief tracked alongside the code, which is usually right.
+Both `PROJECT.md` and `studio.config.json` are yours. Committing them is usually
+right — the team's brief belongs with the code it describes.
+
+Now make that first commit, so you have a point to return to:
+
+```bash
+git add -A
+git commit -m "before letting the team at it"
+```
+
+PowerShell: same two lines, run separately.
+
+Commit again whenever the team reaches a state you would be sad to lose.
 
 ---
 
@@ -393,7 +412,7 @@ You almost certainly want to change it, and there are two ways.
 
 **The Settings panel** — a form in the studio's own web UI. It needs the studio
 running, so it happens in step 11. If you would rather not touch JSON at all,
-read the concepts below, then go to step 10 and do the actual editing there.
+read the concepts below, then go on to step 11 and do the actual editing there.
 
 **The file** — `studio.config.json`. Same fields, and the panel writes this file,
 so the two are interchangeable. The file is also the *only* place a few things
@@ -651,7 +670,7 @@ whenever you like.
 ### Starting over
 
 ```bash
-rm -rf .studio
+rm -rf .studio                        # PowerShell: Remove-Item -Recurse -Force .studio
 ```
 
 Erases all studio history. Touches none of your project files. Use it when you
