@@ -120,10 +120,32 @@ studio running overnight.
 
 ## 4. Get this repository
 
+**Decide where it will live first.** In step 5 you link a global command into
+this clone, so wherever you put it becomes permanent — moving or deleting it
+later breaks the `studio` command. Somewhere boring you keep long-term is right;
+a temp directory or `Downloads` is not.
+
 ```bash
+# pick a permanent home and go there
+mkdir -p ~/tools
+cd ~/tools
+
+# git creates the studio-floor/ directory for you — do not mkdir it yourself
 git clone https://github.com/petershk/studio-floor.git
 cd studio-floor
 ```
+
+On Windows PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force C:\tools
+cd C:\tools
+git clone https://github.com/petershk/studio-floor.git
+cd studio-floor
+```
+
+You should now be inside `~/tools/studio-floor` (or `C:\tools\studio-floor`).
+Confirm with `pwd`.
 
 > **Note:** this repository is currently **private**. If you are not the owner,
 > that clone will fail with an authentication error until it is made public or
@@ -159,8 +181,8 @@ This puts a `studio` command on your PATH pointing at this clone. Two
 consequences worth knowing:
 
 - `git pull` in this directory updates the command everywhere.
-- **Do not delete or move the clone**, or the command breaks. Keep it somewhere
-  permanent, not in a temp directory.
+- **Do not delete or move the clone**, or the command breaks. This is why step 4
+  had you choose a permanent location for it.
 
 Verify:
 
