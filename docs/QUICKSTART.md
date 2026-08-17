@@ -147,10 +147,6 @@ cd studio-floor
 You should now be inside `~/tools/studio-floor` (or `C:\tools\studio-floor`).
 Confirm with `pwd`.
 
-> **Note:** this repository is currently **private**. If you are not the owner,
-> that clone will fail with an authentication error until it is made public or
-> you are added as a collaborator. Ask the owner.
-
 Nothing to install and nothing to build — the studio has **zero dependencies**.
 Confirm it works:
 
