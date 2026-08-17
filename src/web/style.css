@@ -419,3 +419,77 @@ main {
 .msg .who[data-agent],
 .rw .ag[data-agent],
 .qrow .qwho[data-agent] { color: var(--agent-color, var(--fg)); }
+
+/* ------------------------------------------------------------- settings pane
+   The config as a form. Same visual language as the rest of the studio: dense,
+   readable, no decoration that is not carrying information. */
+.settings { overflow-y: auto; padding: 14px 16px 40px; height: 100%; }
+
+.set-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding-bottom: 10px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--line); position: sticky; top: 0;
+  background: var(--bg); z-index: 2;
+}
+.set-actions { display: flex; gap: 8px; }
+.set-head .mono { font-family: var(--mono, monospace); font-size: 11px; margin-left: 8px; }
+
+.set-block { margin: 0 0 26px; }
+.set-block h3 { margin: 0 0 4px; font-size: 13px; letter-spacing: .02em; }
+.set-block > p.muted { margin: 0 0 12px; max-width: 68ch; line-height: 1.5; }
+
+.set-notice {
+  padding: 8px 11px; margin-bottom: 12px; border-radius: 5px; font-size: 12px;
+  border: 1px solid var(--line); background: var(--panel); line-height: 1.5;
+}
+.set-notice.warn { border-color: #a5762f; background: #2a2113; }
+.set-notice.ok { border-color: #3f7d4f; background: #14251a; }
+.set-notice ul { margin: 6px 0 0; padding-left: 18px; }
+.set-notice code { font-size: 11px; }
+
+.set-error { padding: 16px; border: 1px solid #a5762f; border-radius: 6px; background: #2a2113; }
+.set-error p { margin: 10px 0 0; line-height: 1.5; max-width: 66ch; }
+
+/* fields */
+.set-f { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.set-f > span { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.set-f > em { font-size: 11px; line-height: 1.4; font-style: normal; }
+.set-f.wide { max-width: 62ch; }
+.set-f textarea.input { resize: vertical; font: inherit; line-height: 1.45; }
+.set-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 4px 18px; max-width: 900px;
+}
+
+.pill {
+  font-size: 10px; padding: 1px 6px; border-radius: 9px; border: 1px solid var(--line);
+  color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+}
+.pill.live { border-color: #3f7d4f; color: #7bd88f; }
+.pill.warn { border-color: #a5762f; color: #e0a06a; }
+
+/* agents */
+.set-agents { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.set-agent { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--panel); }
+.set-agent-head { display: flex; align-items: center; gap: 8px; }
+.set-agent-head .input { max-width: 200px; }
+.set-agent-n {
+  width: 20px; height: 20px; flex: 0 0 20px; border-radius: 50%;
+  border: 1px solid var(--line); display: grid; place-items: center;
+  font-size: 10px; color: var(--muted);
+}
+.set-agent-move { margin-left: auto; display: flex; gap: 4px; }
+.set-agent-body {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 2px 16px; margin-top: 10px;
+}
+.set-agent-body .set-f.wide { grid-column: 1 / -1; max-width: none; }
+
+.set-warn, .set-locked {
+  margin-top: 8px; padding: 6px 9px; border-radius: 4px; font-size: 11px; line-height: 1.45;
+}
+.set-warn { border: 1px solid #a5762f; background: #2a2113; color: #e0a06a; }
+.set-locked { border: 1px dashed var(--line); color: var(--muted); }
+
+.set-readonly { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.set-readonly .muted { display: inline-block; min-width: 70px; }

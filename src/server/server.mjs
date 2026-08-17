@@ -1,9 +1,14 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { WEB_DIR, PORT, HOST } from '../core/paths.mjs';
+import { WEB_DIR, PORT, HOST, CONFIG_FILE } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
 import { AGENTS, SERVER as SERVER_CONFIG, PROJECT } from '../core/roster.mjs';
+import { providers } from '../agents/adapters/index.mjs';
+import {
+  readRawConfig, applyConfigPatch, saveRawConfig, restartRequiredFor, normaliseConfig,
+  configSchema, PERSONAS, AGENT_PROTECTED_OPTIONS, RUNNER_EDITABLE,
+} from '../core/config.mjs';
 
 /**
  * A shared secret the human's browser and the agents' CLI must present.
@@ -21,6 +26,37 @@ function authorised(req, url) {
   const bearer = header.startsWith('Bearer ') ? header.slice(7) : null;
   const supplied = bearer || req.headers['x-studio-token'] || url.searchParams.get('token');
   return supplied === TOKEN;
+}
+
+/**
+ * Refuse a write that another website told the browser to make.
+ *
+ * This server answers on loopback with `Access-Control-Allow-Origin: *`, which
+ * means any page the human has open in another tab can POST to it. For messages
+ * that is a nuisance the provenance stamp already handles. For the config it
+ * would be remote code execution: the roster decides which programs the studio
+ * spawns.
+ *
+ * A browser always sets `Origin` on a cross-origin POST and cannot be talked out
+ * of it, so an Origin that is present and foreign is the one case worth
+ * rejecting outright. An absent Origin is curl, the studio CLI, or a test —
+ * callers who can already run code here and gain nothing from this route.
+ */
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  let host;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  if (host === req.headers.host) return true;
+  const allowed = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+  try {
+    if (process.env.STUDIO_URL) allowed.add(new URL(process.env.STUDIO_URL).host);
+  } catch { /* malformed STUDIO_URL is not an authorisation */ }
+  return allowed.has(host);
 }
 
 /** How far back a reconnecting stream will replay. Beyond this we send a gap frame. */
@@ -84,6 +120,8 @@ export function createHttpServer(store, runner) {
 
       if (p === '/api/runner') return json(res, runner ? runner.status() : { agents: {} });
 
+      if (p === '/api/config' && req.method !== 'POST') return json(res, readConfigForUi());
+
       if (req.method === 'POST') {
         const body = await readJson(req);
         // Where did this come from?
@@ -101,6 +139,17 @@ export function createHttpServer(store, runner) {
         // stop an honest mistake from impersonating the human, which is the failure
         // that actually happened.
         if (p.startsWith('/api/human/')) body.via = req.headers.origin || req.headers.referer ? 'browser' : 'api';
+
+        if (p === '/api/config') {
+          if (!sameOrigin(req)) {
+            return json(res, {
+              ok: false,
+              error: 'refused: this request came from another origin. The config decides which '
+                + 'programs the studio launches, so it is not writable cross-site.',
+            }, 403);
+          }
+          return json(res, writeConfigFromUi(store, runner, body));
+        }
         if (p === '/api/action') return json(res, handleAction(store, body));
         // Reading is not handling. /delivered records what an agent was shown;
         // only /ack drops items out of its inbox. An agent that dies between the
@@ -174,6 +223,167 @@ export function createHttpServer(store, runner) {
   // and should not do that without STUDIO_TOKEN.
   server.listen(PORT, HOST);
   return server;
+}
+
+// ------------------------------------------------------------------- config
+
+/**
+ * What the settings panel is shown.
+ *
+ * Read from disk on every request rather than served from the roster loaded at
+ * boot, so the panel shows what the file actually says — including edits made in
+ * an editor while the studio was running, and including the fields the panel
+ * refuses to manage. Showing the boot-time roster would quietly hide a change
+ * the human had already made.
+ */
+function readConfigForUi() {
+  let raw;
+  try {
+    raw = readRawConfig(CONFIG_FILE);
+  } catch (e) {
+    return { ok: false, error: e.message, file: CONFIG_FILE };
+  }
+  const resolved = normaliseConfig(raw);
+
+  // Which of the file's agents carry fields the panel must not touch. The UI
+  // marks these so nobody wonders why an agent looks different in the file.
+  const protectedBy = {};
+  for (const a of Array.isArray(raw.agents) ? raw.agents : []) {
+    if (!a || typeof a !== 'object') continue;
+    const found = AGENT_PROTECTED_OPTIONS.filter(
+      (k) => a[k] !== undefined || a.options?.[k] !== undefined,
+    );
+    if (found.length) protectedBy[a.id] = found;
+  }
+
+  return {
+    ok: true,
+    file: CONFIG_FILE,
+    exists: fs.existsSync(CONFIG_FILE),
+    // The resolved view, so the panel shows the defaults that are actually in
+    // force rather than empty boxes for everything the file left unset.
+    config: {
+      project: resolved.project,
+      agents: resolved.agents.map((a) => ({
+        id: a.id,
+        provider: a.provider,
+        label: a.label,
+        // Send back the persona *key* when it is a built-in, so the panel can
+        // select it rather than showing the expanded paragraph in a text box.
+        persona: personaKeyOf(a.persona) ?? a.persona,
+        model: a.options?.model || '',
+        sandbox: a.options?.sandbox || '',
+        permissionMode: a.options?.permissionMode || '',
+        disableMcp: a.options?.disableMcp ?? null,
+      })),
+      runner: resolved.runner,
+      server: { port: resolved.server.port, host: resolved.server.host, token: resolved.server.token ? '(set)' : null },
+      adapters: Array.isArray(raw.adapters) ? raw.adapters : [],
+    },
+    protectedFields: protectedBy,
+    providers: providers(),
+    schema: configSchema(),
+    // The roster this process is actually running, so the panel can say plainly
+    // when the file and the running studio have diverged.
+    running: AGENTS.map((a) => ({ id: a.id, provider: a.provider })),
+  };
+}
+
+function personaKeyOf(text) {
+  for (const [key, body] of Object.entries(PERSONAS)) {
+    if (typeof text === 'string' && text.startsWith(body)) return key;
+  }
+  return null;
+}
+
+/**
+ * Save an edit from the settings panel.
+ *
+ * Validates, writes the file, applies live what can genuinely be applied live,
+ * and reports honestly what still needs a restart. Every accepted change is
+ * appended to the event log, because a human quietly changing what the agents
+ * are allowed to do is exactly the kind of thing the timeline exists to record.
+ */
+function writeConfigFromUi(store, runner, body) {
+  let raw;
+  try {
+    raw = readRawConfig(CONFIG_FILE);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+
+  const { config: next, errors } = applyConfigPatch(raw, body || {}, { knownProviders: providers() });
+  if (errors.length) return { ok: false, errors };
+
+  const before = normaliseConfig(raw);
+  const restart = restartRequiredFor(raw, next);
+
+  try {
+    saveRawConfig(CONFIG_FILE, next);
+  } catch (e) {
+    return { ok: false, error: `could not write ${CONFIG_FILE}: ${e.message}` };
+  }
+
+  // Apply what the runner re-reads each loop. Everything else is honestly
+  // reported as pending rather than pretended into effect.
+  const applied = [];
+  const resolved = normaliseConfig(next);
+  if (runner) {
+    for (const k of RUNNER_EDITABLE) {
+      if (JSON.stringify(before.runner[k]) !== JSON.stringify(resolved.runner[k])) {
+        runner.config[k] = resolved.runner[k];
+        applied.push(`runner.${k}`);
+      }
+    }
+    if (before.project.name !== resolved.project.name || before.project.goal !== resolved.project.goal) {
+      runner.config.project = resolved.project;
+      applied.push('project');
+    }
+  }
+
+  store.append('human.control', null, {
+    action: 'configure',
+    text: describeConfigChange(before, resolved, applied, restart),
+    via: 'browser',
+    applied,
+    restartRequired: restart,
+  });
+
+  return { ok: true, applied, restartRequired: restart, config: readConfigForUi().config };
+}
+
+function describeConfigChange(before, after, applied, restart) {
+  const bits = [];
+  const ids = (c) => c.agents.map((a) => a.id);
+  const wasIds = ids(before);
+  const nowIds = ids(after);
+  const added = nowIds.filter((i) => !wasIds.includes(i));
+  const removed = wasIds.filter((i) => !nowIds.includes(i));
+  if (added.length) bits.push(`added ${added.join(', ')}`);
+  if (removed.length) bits.push(`removed ${removed.join(', ')}`);
+  for (const a of after.agents) {
+    const b = before.agents.find((x) => x.id === a.id);
+    if (!b) continue;
+    if (b.provider !== a.provider) bits.push(`${a.id} now runs on ${a.provider}`);
+    if (b.persona !== a.persona) bits.push(`${a.id}'s persona changed`);
+    if ((b.options?.sandbox || '') !== (a.options?.sandbox || '')) {
+      bits.push(`${a.id} sandbox → ${a.options?.sandbox || 'default'}`);
+    }
+    if ((b.options?.permissionMode || '') !== (a.options?.permissionMode || '')) {
+      bits.push(`${a.id} permissions → ${a.options?.permissionMode || 'default'}`);
+    }
+    if ((b.options?.model || '') !== (a.options?.model || '')) {
+      bits.push(`${a.id} model → ${a.options?.model || 'provider default'}`);
+    }
+  }
+  for (const k of RUNNER_EDITABLE) {
+    if (JSON.stringify(before.runner[k]) !== JSON.stringify(after.runner[k])) {
+      bits.push(`${k} ${JSON.stringify(before.runner[k])} → ${JSON.stringify(after.runner[k])}`);
+    }
+  }
+  if (!bits.length) bits.push('saved with no effective change');
+  const tail = restart.length ? ` — needs a restart (${restart.join('; ')})` : '';
+  return `changed the studio configuration: ${bits.join('; ')}${tail}`;
 }
 
 // ------------------------------------------------------------------ actions

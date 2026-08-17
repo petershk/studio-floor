@@ -1,0 +1,411 @@
+/**
+ * The settings panel.
+ *
+ * Editing studio.config.json by hand is the sharpest edge a newcomer hits, so
+ * this is the same thing as a form. Two rules shape it:
+ *
+ * 1. It never claims a change took effect when it did not. The runner re-reads
+ *    its own timings every loop, so those apply live; the roster is resolved
+ *    once at import and cannot. The panel says which is which, per save.
+ *
+ * 2. It cannot change what program runs. `command`, `extraArgs` and `env` are
+ *    refused by the API and are not rendered here — an agent carrying them is
+ *    shown with a note instead. See the allowlist in core/config.mjs for why.
+ */
+
+const $ = (id) => document.getElementById(id);
+
+let data = null;      // the last /api/config payload
+let draft = null;     // what the human has typed but not saved
+let dirty = false;
+let notice = null;    // { kind, text } shown above the form
+
+async function load() {
+  const r = await fetch('/api/config');
+  data = await r.json();
+  if (!data.ok) {
+    render();
+    return;
+  }
+  draft = structuredClone(data.config);
+  dirty = false;
+  render();
+}
+
+/** Called when the tab is opened, so the panel never shows a stale file. */
+export async function refreshSettings() {
+  // Do not silently throw away typing because a tab was re-clicked.
+  if (dirty) return render();
+  return load();
+}
+
+function setNotice(kind, text) {
+  notice = text ? { kind, text } : null;
+}
+
+// ---------------------------------------------------------------- rendering
+
+function render() {
+  const el = $('settings');
+  if (!el) return;
+
+  if (!data) return void (el.innerHTML = '<div class="muted">loading…</div>');
+
+  if (!data.ok) {
+    el.innerHTML = `
+      <div class="set-error">
+        <strong>The config file could not be read.</strong>
+        <div class="muted">${esc(data.error || '')}</div>
+        <div class="muted">${esc(data.file || '')}</div>
+        <p>Fix the file by hand — the panel will not overwrite a file it cannot parse,
+        because that would throw away whatever is in it.</p>
+      </div>`;
+    return;
+  }
+
+  const s = data.schema;
+  const divergent = rosterDiverged();
+
+  el.innerHTML = `
+    <div class="set-head">
+      <div>
+        <strong>Configuration</strong>
+        <span class="muted mono">${esc(data.file)}</span>
+      </div>
+      <div class="set-actions">
+        <button class="btn" id="set-reload" type="button">Reload from file</button>
+        <button class="btn primary" id="set-save" type="button" ${dirty ? '' : 'disabled'}>Save</button>
+      </div>
+    </div>
+
+    ${notice ? `<div class="set-notice ${notice.kind}">${notice.text}</div>` : ''}
+    ${divergent ? `<div class="set-notice warn">
+      The running studio is <b>${esc(divergent.running)}</b> but the file now says
+      <b>${esc(divergent.file)}</b>. Restart the studio for the file to take effect.
+    </div>` : ''}
+    ${dirty ? '<div class="set-notice">Unsaved changes.</div>' : ''}
+
+    <section class="set-block">
+      <h3>Project</h3>
+      <p class="muted">What the team is for. The brief is the file every agent reads
+      in full on its first turn.</p>
+      ${field('Name', 'text', draft.project.name, 'project.name', 'live')}
+      ${field('Brief', 'text', draft.project.brief, 'project.brief', 'restart')}
+      ${area('Goal', draft.project.goal, 'project.goal', 'live',
+    'One paragraph, shown to agents before they read the brief. Optional.')}
+    </section>
+
+    <section class="set-block">
+      <h3>The team <span class="muted">— ${draft.agents.length} agent${draft.agents.length === 1 ? '' : 's'}</span></h3>
+      <p class="muted">An <b>id</b> is what the team calls it. A <b>provider</b> is which CLI
+      runs it. They are not the same thing — several agents can share one provider with
+      different jobs, and they should have different personas, because agents given the
+      same framing agree with each other.</p>
+      <div class="set-agents">${draft.agents.map((a, i) => agentCard(a, i, s)).join('')}</div>
+      <button class="btn" id="set-add-agent" type="button">Add an agent</button>
+    </section>
+
+    <section class="set-block">
+      <h3>Runner</h3>
+      <p class="muted">These apply immediately — the runner re-reads them every loop.</p>
+      <div class="set-grid">
+        ${num('Turn budget per agent', draft.runner.maxTurns, 'runner.maxTurns',
+    'A hard stop. The most reliable brake on cost.')}
+        ${num('Turn timeout (ms)', draft.runner.turnTimeoutMs, 'runner.turnTimeoutMs',
+    'A turn running longer than this is killed.')}
+        ${num('Cooldown between turns (ms)', draft.runner.cooldownMs, 'runner.cooldownMs',
+    'Stops an agent spinning.')}
+        ${num('Stagger on start (ms)', draft.runner.staggerMs, 'runner.staggerMs',
+    'Delay between agent starts.')}
+        ${num('Command line budget', draft.runner.commandLineBudget, 'runner.commandLineBudget',
+    'Prompts longer than this are cut from the middle. Windows refuses a command line over 32767 characters.')}
+        ${field('Idle backoff (ms, comma separated)', 'text',
+    (draft.runner.idleBackoffMs || []).join(', '), 'runner.idleBackoffMs', 'live',
+    'Escalating wait when an agent has nothing to do.')}
+      </div>
+    </section>
+
+    <section class="set-block">
+      <h3>Not editable here</h3>
+      <p class="muted">
+        The server address and token, per-agent <code>command</code>,
+        <code>extraArgs</code> and <code>env</code>, and the <code>adapters</code> list
+        are editable only in the file. They decide which programs run and which code is
+        imported, so a settings form reachable over HTTP must not be able to set them.
+      </p>
+      <div class="set-readonly">
+        <div><span class="muted">server</span> ${esc(draft.server.host)}:${esc(String(draft.server.port))}
+          ${draft.server.token ? '<span class="pill">token set</span>' : '<span class="pill warn">no token</span>'}</div>
+        ${data.config.adapters?.length
+    ? `<div><span class="muted">adapters</span> ${data.config.adapters.map((a) => `<code>${esc(a)}</code>`).join(' ')}</div>`
+    : ''}
+      </div>
+    </section>
+  `;
+
+  wire();
+}
+
+function agentCard(a, i, s) {
+  const prot = data.protectedFields?.[a.id] || [];
+  const isCustomPersona = a.persona && !s.personas.includes(a.persona);
+  return `
+  <div class="set-agent" data-i="${i}">
+    <div class="set-agent-head">
+      <span class="set-agent-n">${i + 1}</span>
+      <input class="input" data-path="agents.${i}.id" value="${esc(a.id)}"
+             placeholder="id" aria-label="agent id">
+      <select class="input" data-path="agents.${i}.provider" aria-label="provider">
+        ${data.providers.map((p) =>
+    `<option value="${esc(p)}"${p === a.provider ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+      </select>
+      <div class="set-agent-move">
+        <button class="btn ghost" data-move="${i}:-1" type="button" title="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
+        <button class="btn ghost" data-move="${i}:1" type="button" title="Move down"${i === draft.agents.length - 1 ? ' disabled' : ''}>↓</button>
+        <button class="btn ghost danger" data-remove="${i}" type="button" title="Remove this agent">remove</button>
+      </div>
+    </div>
+
+    <div class="set-agent-body">
+      <label class="set-f">
+        <span>Persona</span>
+        <select class="input" data-path="agents.${i}.persona.select">
+          ${s.personas.map((p) =>
+    `<option value="${esc(p)}"${p === a.persona ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+          <option value="__custom"${isCustomPersona ? ' selected' : ''}>custom…</option>
+        </select>
+      </label>
+      ${isCustomPersona ? `<label class="set-f wide">
+        <span>Custom persona</span>
+        <textarea class="input" rows="3" data-path="agents.${i}.persona">${esc(a.persona)}</textarea>
+      </label>` : ''}
+
+      <label class="set-f">
+        <span>Model <em class="muted">optional</em></span>
+        <input class="input" data-path="agents.${i}.model" value="${esc(a.model || '')}"
+               placeholder="provider default">
+      </label>
+
+      <label class="set-f">
+        <span>Sandbox <em class="muted">codex</em></span>
+        <select class="input" data-path="agents.${i}.sandbox">
+          <option value="">default</option>
+          ${s.sandboxes.map((v) =>
+    `<option value="${esc(v)}"${v === a.sandbox ? ' selected' : ''}>${esc(v)}</option>`).join('')}
+        </select>
+      </label>
+
+      <label class="set-f">
+        <span>Permissions <em class="muted">claude / grok</em></span>
+        <select class="input" data-path="agents.${i}.permissionMode">
+          <option value="">default</option>
+          ${s.permissionModes.map((v) =>
+    `<option value="${esc(v)}"${v === a.permissionMode ? ' selected' : ''}>${esc(v)}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+
+    ${a.sandbox === 'full' ? `<div class="set-warn">
+      <b>full</b> bypasses Codex's approvals and sandbox entirely. This agent can run
+      any command on this machine.</div>` : ''}
+    ${prot.length ? `<div class="set-locked">
+      Set in the file and preserved on save: ${prot.map((k) => `<code>${esc(k)}</code>`).join(' ')}
+    </div>` : ''}
+  </div>`;
+}
+
+// -------------------------------------------------------------------- wiring
+
+function wire() {
+  $('settings').querySelectorAll('[data-path]').forEach((input) => {
+    input.oninput = () => onEdit(input);
+    input.onchange = () => onEdit(input);
+  });
+
+  $('settings').querySelectorAll('[data-move]').forEach((b) => {
+    b.onclick = () => {
+      const [i, d] = b.dataset.move.split(':').map(Number);
+      const j = i + d;
+      if (j < 0 || j >= draft.agents.length) return;
+      [draft.agents[i], draft.agents[j]] = [draft.agents[j], draft.agents[i]];
+      dirty = true;
+      render();
+    };
+  });
+
+  $('settings').querySelectorAll('[data-remove]').forEach((b) => {
+    b.onclick = () => {
+      const i = Number(b.dataset.remove);
+      if (draft.agents.length === 1) {
+        setNotice('warn', 'A studio needs at least one agent.');
+        return render();
+      }
+      if (!confirm(`Remove "${draft.agents[i].id}" from the roster?`)) return;
+      draft.agents.splice(i, 1);
+      dirty = true;
+      render();
+    };
+  });
+
+  const add = $('set-add-agent');
+  if (add) {
+    add.onclick = () => {
+      const used = new Set(draft.agents.map((a) => a.id));
+      let n = draft.agents.length + 1;
+      while (used.has(`agent-${n}`)) n++;
+      draft.agents.push({
+        id: `agent-${n}`,
+        provider: data.providers[0] || 'claude',
+        label: '',
+        persona: 'implementer',
+        model: '',
+        sandbox: '',
+        permissionMode: '',
+      });
+      dirty = true;
+      render();
+    };
+  }
+
+  $('set-reload').onclick = async () => {
+    if (dirty && !confirm('Discard your unsaved changes and reload the file?')) return;
+    dirty = false;
+    setNotice(null);
+    await load();
+  };
+
+  $('set-save').onclick = save;
+}
+
+function onEdit(input) {
+  const path = input.dataset.path;
+  const value = input.type === 'checkbox' ? input.checked : input.value;
+
+  if (path.endsWith('.persona.select')) {
+    const i = Number(path.split('.')[1]);
+    // "custom…" seeds the textarea with the built-in text so the human edits a
+    // real starting point rather than an empty box.
+    draft.agents[i].persona = value === '__custom' ? (draft.agents[i].persona || '') : value;
+    dirty = true;
+    return render();
+  }
+
+  const parts = path.split('.');
+  let target = draft;
+  for (let k = 0; k < parts.length - 1; k++) target = target[parts[k]];
+  target[parts.at(-1)] = value;
+  dirty = true;
+
+  // Re-render only for things that change the shape of the form; otherwise the
+  // caret would jump to the end of the field on every keystroke.
+  if (path.endsWith('.sandbox')) return render();
+  $('set-save').disabled = false;
+}
+
+async function save() {
+  const btn = $('set-save');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const patch = {
+    project: {
+      name: draft.project.name,
+      brief: draft.project.brief,
+      goal: draft.project.goal || '',
+    },
+    agents: draft.agents.map((a) => {
+      const out = { id: a.id, provider: a.provider, persona: a.persona };
+      if (a.label) out.label = a.label;
+      if (a.model) out.model = a.model;
+      if (a.sandbox) out.sandbox = a.sandbox;
+      if (a.permissionMode) out.permissionMode = a.permissionMode;
+      return out;
+    }),
+    runner: {
+      ...draft.runner,
+      idleBackoffMs: String(draft.runner.idleBackoffMs)
+        .split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)),
+    },
+  };
+  // server settings are read-only here; do not send them back as an edit
+  delete patch.runner.inboxWaitMs;
+
+  let r;
+  try {
+    r = await (await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    })).json();
+  } catch (e) {
+    setNotice('warn', `Could not reach the studio: ${esc(e.message)}`);
+    btn.textContent = 'Save';
+    return render();
+  }
+
+  btn.textContent = 'Save';
+
+  if (!r.ok) {
+    const list = r.errors?.length
+      ? `<ul>${r.errors.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+      : `<div>${esc(r.error || 'save failed')}</div>`;
+    setNotice('warn', `<b>Not saved.</b>${list}`);
+    return render();
+  }
+
+  dirty = false;
+  const live = r.applied?.length
+    ? `Applied now: ${r.applied.map((x) => `<code>${esc(x)}</code>`).join(' ')}.`
+    : '';
+  const later = r.restartRequired?.length
+    ? ` <b>Restart the studio</b> for the rest — ${esc(r.restartRequired.join('; '))}.`
+    : '';
+  setNotice(r.restartRequired?.length ? 'warn' : 'ok',
+    `Saved to the config file. ${live}${later}` || 'Saved.');
+
+  await load();
+}
+
+/** Has the file drifted from the roster this process is actually running? */
+function rosterDiverged() {
+  if (!data?.running || !data?.config?.agents) return null;
+  const running = data.running.map((a) => a.id).join(', ');
+  const file = data.config.agents.map((a) => a.id).join(', ');
+  return running === file ? null : { running, file };
+}
+
+// --------------------------------------------------------------- form helpers
+
+function field(label, type, value, path, when, help = '') {
+  return `<label class="set-f wide">
+    <span>${esc(label)} ${badge(when)}</span>
+    <input class="input" type="${type}" data-path="${path}" value="${esc(value ?? '')}">
+    ${help ? `<em class="muted">${esc(help)}</em>` : ''}
+  </label>`;
+}
+
+function area(label, value, path, when, help = '') {
+  return `<label class="set-f wide">
+    <span>${esc(label)} ${badge(when)}</span>
+    <textarea class="input" rows="3" data-path="${path}">${esc(value ?? '')}</textarea>
+    ${help ? `<em class="muted">${esc(help)}</em>` : ''}
+  </label>`;
+}
+
+function num(label, value, path, help = '') {
+  return `<label class="set-f">
+    <span>${esc(label)}</span>
+    <input class="input" type="number" data-path="${path}" value="${esc(String(value ?? ''))}">
+    ${help ? `<em class="muted">${esc(help)}</em>` : ''}
+  </label>`;
+}
+
+function badge(when) {
+  if (when === 'live') return '<span class="pill live" title="Takes effect immediately">live</span>';
+  if (when === 'restart') return '<span class="pill warn" title="Needs a studio restart">restart</span>';
+  return '';
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}

@@ -8,6 +8,7 @@
 
 import { isHumanDirected } from './message-addressing.js';
 import { refillKeepingPlace } from './scroll-follow.js';
+import { refreshSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 /**
@@ -481,6 +482,7 @@ function wireControls() {
       t.classList.add('active');
       $(`pane-${t.dataset.tab}`).classList.add('active');
       if (t.dataset.tab === 'raw') renderRaw();
+      if (t.dataset.tab === 'settings') refreshSettings();
     };
   });
 

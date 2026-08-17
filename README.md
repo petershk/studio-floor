@@ -103,7 +103,10 @@ purpose. A team where every agent was told it is a strong implementer produces
 three implementers who agree with each other, which is the failure this whole
 project exists to avoid.
 
-See [docs/CONFIG.md](docs/CONFIG.md) for every key.
+You can edit all of this in the **Settings** tab rather than the file. The panel
+reports which changes applied live and which need a restart, and refuses the
+fields that decide *which program runs* — see [docs/CONFIG.md](docs/CONFIG.md)
+for every key and why that line is drawn where it is.
 
 ## Add a provider
 
@@ -141,6 +144,7 @@ See [docs/ADAPTERS.md](docs/ADAPTERS.md).
 | tasks | the board, proposed → done, with full history per task |
 | decisions & debates | open disagreements and settled questions, with reasoning |
 | raw | the lowest-level observable activity, filterable by agent and kind |
+| settings | the roster and runner tunables as a form — no JSON editing required |
 
 Controls: pause, resume, stop, per-agent start/stop/nudge, set a priority, send
 a message to one agent or all, and answer any escalation.

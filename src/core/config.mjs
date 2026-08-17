@@ -219,3 +219,233 @@ export function writeConfig(file = CONFIG_FILE, cfg = defaultConfig()) {
   fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
   return { written: true, file };
 }
+
+// ---------------------------------------------------------- editing over HTTP
+
+/**
+ * Fields the settings panel may write, and nothing else.
+ *
+ * This allowlist is a security boundary, not a convenience.
+ *
+ * The config decides which executable the studio spawns (`command`), what
+ * arguments it gets (`extraArgs`), what environment it runs in (`env`), and
+ * which JavaScript files get imported at boot (`adapters`). Any of those,
+ * writable over HTTP, is remote code execution wearing a settings form — and
+ * the server sets `Access-Control-Allow-Origin: *`, so "over HTTP" includes any
+ * website the human happens to have open in another tab.
+ *
+ * So the panel can change how much freedom the agents have. It cannot change
+ * what program runs. Those fields stay editable only by someone who can already
+ * write files on the machine, which is a person who does not need this API.
+ */
+export const AGENT_EDITABLE = ['id', 'provider', 'label', 'persona'];
+export const AGENT_EDITABLE_OPTIONS = ['model', 'sandbox', 'permissionMode', 'disableMcp'];
+export const AGENT_PROTECTED_OPTIONS = ['command', 'extraArgs', 'env'];
+export const RUNNER_EDITABLE = [
+  'maxTurns', 'turnTimeoutMs', 'cooldownMs', 'staggerMs', 'commandLineBudget', 'idleBackoffMs',
+];
+export const PROJECT_EDITABLE = ['name', 'goal', 'brief'];
+
+/**
+ * Which edits take effect immediately and which need a restart.
+ *
+ * The runner re-reads its own settings every loop iteration, so turn budgets and
+ * timings genuinely apply live. The roster does not work that way: `AGENT_IDS`
+ * is resolved once at import and baked into the store's projection, the server's
+ * validation and the runner's agent map. Pretending otherwise would show the
+ * human a team that is not the team that is running.
+ */
+export const LIVE_FIELDS = ['runner', 'project.name', 'project.goal'];
+
+/** Numeric bounds, so a typo cannot wedge the studio into a spin or a stall. */
+const NUMERIC_BOUNDS = {
+  maxTurns: [0, 100_000],
+  turnTimeoutMs: [10_000, 24 * 60 * 60 * 1000],
+  cooldownMs: [0, 10 * 60 * 1000],
+  staggerMs: [0, 10 * 60 * 1000],
+  commandLineBudget: [2_000, 120_000],
+};
+
+const SANDBOXES = ['read-only', 'workspace-write', 'full'];
+const PERMISSION_MODES = ['default', 'auto', 'acceptEdits'];
+
+/** Read the config file as written, with no defaults applied. */
+export function readRawConfig(file = CONFIG_FILE) {
+  if (!fs.existsSync(file)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new Error(`studio: ${file} is not valid JSON — ${e.message}`);
+  }
+}
+
+/**
+ * Merge an edit from the settings panel into the config as written on disk.
+ *
+ * Deliberately patches the *raw* file rather than writing back a normalised
+ * config. Writing the normalised form would bake every default into the file and
+ * silently drop the fields this API refuses to manage — so saving the roster
+ * from the UI would delete a hand-written `adapters` list or a per-agent
+ * `command`. Unmanaged fields are carried across per agent, matched by id.
+ *
+ * Returns the new raw config and the problems found. Never writes anything.
+ */
+export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}) {
+  const errors = [];
+  const next = JSON.parse(JSON.stringify(raw || {}));
+
+  if (patch.project && typeof patch.project === 'object') {
+    next.project = { ...(next.project || {}) };
+    for (const [k, v] of Object.entries(patch.project)) {
+      if (!PROJECT_EDITABLE.includes(k)) {
+        errors.push(`project.${k} is not editable here`);
+        continue;
+      }
+      if (typeof v !== 'string') {
+        errors.push(`project.${k} must be text`);
+        continue;
+      }
+      if (k === 'brief' && (v.includes('..') || path.isAbsolute(v))) {
+        // The brief is read from disk and pasted into every first-turn prompt.
+        // A path that escapes the project would turn the settings form into a
+        // file-read primitive.
+        errors.push('project.brief must be a path inside the project');
+        continue;
+      }
+      next.project[k] = v;
+    }
+  }
+
+  if (patch.runner && typeof patch.runner === 'object') {
+    next.runner = { ...(next.runner || {}) };
+    for (const [k, v] of Object.entries(patch.runner)) {
+      if (!RUNNER_EDITABLE.includes(k)) {
+        errors.push(`runner.${k} is not editable here`);
+        continue;
+      }
+      if (k === 'idleBackoffMs') {
+        const list = Array.isArray(v) ? v.map(Number) : [];
+        if (!list.length || list.some((n) => !Number.isFinite(n) || n < 0 || n > 3_600_000)) {
+          errors.push('runner.idleBackoffMs must be a list of delays between 0 and 3600000 ms');
+          continue;
+        }
+        next.runner[k] = list;
+        continue;
+      }
+      const n = Number(v);
+      const [lo, hi] = NUMERIC_BOUNDS[k] || [0, Number.MAX_SAFE_INTEGER];
+      if (!Number.isFinite(n) || n < lo || n > hi) {
+        errors.push(`runner.${k} must be a number between ${lo} and ${hi}`);
+        continue;
+      }
+      next.runner[k] = n;
+    }
+  }
+
+  if (patch.agents !== undefined) {
+    if (!Array.isArray(patch.agents) || !patch.agents.length) {
+      errors.push('the roster must have at least one agent');
+    } else {
+      // Unmanaged per-agent fields survive an edit, matched by id.
+      const previous = new Map(
+        (Array.isArray(raw?.agents) ? raw.agents : [])
+          .filter((a) => a && typeof a === 'object')
+          .map((a) => [a.id, a]),
+      );
+      next.agents = patch.agents.map((incoming, i) => {
+        const kept = previous.get(incoming?.id) || {};
+        const agent = {};
+        for (const k of AGENT_PROTECTED_OPTIONS) {
+          if (kept[k] !== undefined) agent[k] = kept[k];
+        }
+        if (kept.options) agent.options = kept.options;
+        for (const [k, v] of Object.entries(incoming || {})) {
+          if (AGENT_EDITABLE.includes(k)) {
+            agent[k] = typeof v === 'string' ? v.trim() : v;
+          } else if (AGENT_EDITABLE_OPTIONS.includes(k)) {
+            if (k === 'sandbox' && v && !SANDBOXES.includes(v)) {
+              errors.push(`agent #${i + 1}: sandbox must be one of ${SANDBOXES.join(', ')}`);
+              continue;
+            }
+            if (k === 'permissionMode' && v && !PERMISSION_MODES.includes(v)) {
+              errors.push(`agent #${i + 1}: permissionMode must be one of ${PERMISSION_MODES.join(', ')}`);
+              continue;
+            }
+            if (v !== '' && v !== undefined && v !== null) agent[k] = v;
+          } else if (AGENT_PROTECTED_OPTIONS.includes(k)) {
+            errors.push(
+              `agent #${i + 1}: "${k}" cannot be set from the settings panel — `
+              + 'it decides what program runs, so it is editable only in the config file',
+            );
+          } else {
+            errors.push(`agent #${i + 1}: "${k}" is not a known field`);
+          }
+        }
+        return agent;
+      });
+    }
+  }
+
+  // Everything above is field-level. This is the whole-config check: unusable
+  // ids and duplicates. Reuse the loader rather than reimplementing its rules,
+  // so the panel cannot accept a config the launcher would then reject.
+  if (!errors.length) {
+    try {
+      const resolved = normaliseConfig(next);
+
+      // A provider with no adapter is fatal at startup — the Runner refuses to
+      // construct — so accepting one here writes a config that cannot boot. The
+      // panel bricked a studio exactly this way before the check existed.
+      // normaliseConfig cannot do it: adapters are a separate registry that this
+      // module deliberately does not import, so the caller supplies the list.
+      if (knownProviders) {
+        for (const a of resolved.agents) {
+          if (!knownProviders.includes(a.provider)) {
+            errors.push(
+              `agent "${a.id}": there is no adapter for provider "${a.provider}" `
+              + `(this studio has ${knownProviders.join(', ')}). The studio would fail to start.`,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      errors.push(String(e.message).replace(/^studio: /, ''));
+    }
+  }
+
+  return { config: next, errors };
+}
+
+/** Which of these changes need a restart before they mean anything. */
+export function restartRequiredFor(before, after) {
+  const reasons = [];
+  const roster = (c) => JSON.stringify((c.agents || []).map((a) => [a.id, a.provider, a.persona, a.label, a.model, a.sandbox, a.permissionMode, a.disableMcp]));
+  if (roster(before) !== roster(after)) reasons.push('the roster changed');
+  if (JSON.stringify(before.server || {}) !== JSON.stringify(after.server || {})) reasons.push('server settings changed');
+  if ((before.project?.brief || '') !== (after.project?.brief || '')) reasons.push('the project brief path changed');
+  return reasons;
+}
+
+/** Write the config, atomically enough that a crash cannot leave a half file. */
+export function saveRawConfig(file, raw) {
+  const tmp = `${file}.tmp`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+  return file;
+}
+
+/** Everything the settings panel needs to render itself, so the UI hardcodes nothing. */
+export function configSchema() {
+  return {
+    personas: Object.keys(PERSONAS),
+    sandboxes: SANDBOXES,
+    permissionModes: PERMISSION_MODES,
+    agentFields: [...AGENT_EDITABLE, ...AGENT_EDITABLE_OPTIONS],
+    protectedFields: AGENT_PROTECTED_OPTIONS,
+    runnerFields: RUNNER_EDITABLE,
+    projectFields: PROJECT_EDITABLE,
+    liveFields: LIVE_FIELDS,
+    bounds: NUMERIC_BOUNDS,
+  };
+}

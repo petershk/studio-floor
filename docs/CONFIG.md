@@ -1,5 +1,42 @@
 # Configuration
 
+Most of this is editable from the **Settings** tab in the studio's web UI, which
+is the easier way in. This page is the reference, and the authority for the
+fields the panel deliberately will not touch.
+
+## The Settings panel
+
+`studio start`, then open http://127.0.0.1:4173 and pick **Settings**. You can
+add, remove and reorder agents, change ids, providers, personas, models,
+sandboxes and permission modes, edit the project name, brief and goal, and set
+every runner tunable.
+
+Two things about it are worth knowing.
+
+**It tells you what actually took effect.** The runner re-reads its own settings
+every loop, so turn budgets, timeouts, cooldown, stagger and backoff apply the
+moment you save. The roster does not work that way — `AGENT_IDS` is resolved once
+at import and baked into the store's projection, the server's validation and the
+runner's agent map — so adding or removing an agent needs a restart. The panel
+says which happened, per save, rather than implying everything is live. If the
+file and the running studio have diverged it says that too.
+
+**It cannot change which program runs.** Per-agent `command`, `extraArgs` and
+`env`, and the top-level `adapters` list, are refused by the API and not
+rendered. They decide what executable is spawned, with what arguments, in what
+environment, and which JavaScript is imported at boot. The server answers on
+loopback with `Access-Control-Allow-Origin: *`, so a writable-over-HTTP version
+of those fields would be remote code execution reachable from any tab you have
+open. Cross-origin writes to the config are rejected outright for the same
+reason. Edit those in the file.
+
+An edit made in the panel preserves them: they are carried across per agent,
+matched by id, so saving the roster from the UI will not delete a hand-written
+`command`. Every save is recorded in the event log as a `human.control` event,
+so a change to what the agents are allowed to do shows up in the timeline.
+
+---
+
 `studio.config.json` in the project directory, or wherever `STUDIO_CONFIG`
 points. Written by `studio init`; every key has a default, so a studio with no
 config is a valid studio.

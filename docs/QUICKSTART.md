@@ -388,6 +388,11 @@ turn without needing you.
 
 ## 9. Configure the team
 
+You can do this in the **Settings** tab of the web UI once the studio is running
+(step 11) — add and remove agents, pick personas from a menu, set the turn
+budget — and if that sounds better than editing JSON, skip ahead and come back.
+The panel writes this same file.
+
 Open `studio.config.json`. `studio init` wrote a default: three agents on three
 different providers.
 
@@ -520,6 +525,7 @@ Take a minute to learn the layout:
 | Tasks | the board, proposed through done |
 | Decisions | settled questions and open debates |
 | Raw | the lowest-level output of each CLI — where you look when confused |
+| Settings | the roster and the runner tunables, as a form instead of JSON |
 | bottom bar | the box you type into to talk to the team |
 
 Press `Ctrl-C` in the terminal when you are done looking.

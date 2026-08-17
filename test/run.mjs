@@ -32,6 +32,7 @@ const ROOT = path.resolve(HERE, '..');
 const STUDIO_TESTS = [
   'smoke.mjs',
   'adapter-args.mjs',
+  'config-panel.mjs',
   'roster.mjs',
   'cli.mjs',
   'validation.mjs',
@@ -66,6 +67,7 @@ const STUDIO_SOURCES = [
   'src/core/store.mjs',
   'src/core/events.mjs',
   'src/core/config.mjs',
+  'src/web/settings.js',
   'src/core/roster.mjs',
   'src/core/paths.mjs',
   'src/server/server.mjs',
