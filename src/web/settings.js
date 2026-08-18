@@ -337,6 +337,32 @@ function agentCard(a, i, s) {
       </label>
 
       <label class="set-f">
+        <span>Backend <em class="muted">optional</em></span>
+        <select class="input" data-path="agents.${i}.preset.select">
+          <option value="">the provider's own</option>
+          ${Object.entries(s.presets || {}).map(([k, v]) =>
+    `<option value="${esc(k)}"${a.preset === k ? ' selected' : ''}>${esc(v.label || k)}</option>`).join('')}
+        </select>
+      </label>
+
+      ${a.preset || a.baseUrl ? `<label class="set-f wide">
+        <span>API base URL</span>
+        <input class="input" data-path="agents.${i}.baseUrl" spellcheck="false"
+               value="${esc(a.baseUrl || '')}" placeholder="https://…">
+        <em class="muted">Must be https. This is where the key gets sent.</em>
+      </label>
+      <label class="set-f wide">
+        <span>API key, from this environment variable</span>
+        <input class="input" data-path="agents.${i}.apiKeyEnv" spellcheck="false"
+               value="${esc(a.apiKeyEnv || '')}" placeholder="MOONSHOT_API_KEY">
+        <em class="muted">The studio reads the key from this variable at launch. Naming a
+        variable keeps the secret out of the config file, which is worth committing.</em>
+      </label>
+      ${a.apiKey ? `<div class="set-warn">
+        This agent has a literal API key in the config file. That file is meant to be
+        committed — move the key into an environment variable and name it above.</div>` : ''}` : ''}
+
+      <label class="set-f">
         <span>Sandbox <em class="muted">codex</em></span>
         <select class="input" data-path="agents.${i}.sandbox">
           <option value="">default</option>
@@ -582,6 +608,25 @@ function onEdit(input) {
   const path = input.dataset.path;
   const value = input.type === 'checkbox' ? input.checked : input.value;
 
+  if (path.endsWith('.preset.select')) {
+    const i = Number(path.split('.')[1]);
+    const preset = data.schema.presets?.[value];
+    if (!value) {
+      delete draft.agents[i].preset;
+    } else if (preset) {
+      // Fill the fields in rather than hiding them: the human should be able to
+      // see and change where their key is going.
+      Object.assign(draft.agents[i], {
+        preset: value,
+        provider: preset.provider || draft.agents[i].provider,
+        baseUrl: preset.baseUrl || '',
+        apiKeyEnv: preset.apiKeyEnv || '',
+      });
+    }
+    dirty = true;
+    return render();
+  }
+
   if (path.endsWith('.persona.select')) {
     const i = Number(path.split('.')[1]);
     // "custom…" seeds the textarea with the built-in text so the human edits a
@@ -618,6 +663,9 @@ async function save() {
       const out = { id: a.id, provider: a.provider, persona: a.persona };
       if (a.label) out.label = a.label;
       if (a.model) out.model = a.model;
+      if (a.preset) out.preset = a.preset;
+      if (a.baseUrl) out.baseUrl = a.baseUrl;
+      if (a.apiKeyEnv) out.apiKeyEnv = a.apiKeyEnv;
       if (a.sandbox) out.sandbox = a.sandbox;
       if (a.permissionMode) out.permissionMode = a.permissionMode;
       return out;

@@ -170,6 +170,27 @@ for (const field of AGENT_PROTECTED_OPTIONS) {
   ok('a non-list adapters key is rejected', threw);
 }
 
+// -------------------------------------------- where credentials get sent
+
+// baseUrl and apiKey are data, not code, so unlike `env` the panel may write
+// them. That makes the panel the place where a key could be sent somewhere it
+// should not go, so the destination is checked.
+{
+  const t = (a) => applyConfigPatch(base, { agents: [{ id: 'x', provider: 'claude', ...a }] }, opts);
+  ok('an https endpoint is accepted', t({ baseUrl: 'https://api.moonshot.ai/anthropic' }).errors.length === 0);
+  ok('a cleartext endpoint is refused',
+    t({ baseUrl: 'http://api.example.com' }).errors.some((e) => /https/.test(e)),
+    'an API key must not travel in clear');
+  ok('localhost over http is allowed for local proxies',
+    t({ baseUrl: 'http://localhost:8080' }).errors.length === 0);
+  ok('a non-URL is refused', t({ baseUrl: 'moonshot' }).errors.some((e) => /must be a URL/.test(e)));
+  ok('an env var name is accepted', t({ apiKeyEnv: 'MOONSHOT_API_KEY' }).errors.length === 0);
+  ok('a bogus env var name is refused',
+    t({ apiKeyEnv: 'not a var' }).errors.some((e) => /environment variable/.test(e)));
+  ok('the panel may still not set raw env',
+    t({ env: { NODE_OPTIONS: '--require /evil.js' } }).errors.some((e) => /cannot be set/.test(e)));
+}
+
 // ------------------------------------------------------------------ validation
 
 const rejects = [

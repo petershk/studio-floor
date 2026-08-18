@@ -405,6 +405,14 @@ export class Runner {
         STUDIO_URL: BASE_URL,
         STUDIO_PROJECT_ROOT: PROJECT_ROOT,
         STUDIO_CMD,
+        // An adapter may translate safe, declarative options into the
+        // environment its CLI expects — `baseUrl` and `apiKey` into
+        // ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN, for instance. That is
+        // what lets one adapter serve any API-compatible backend without the
+        // settings panel having to accept arbitrary env, which it must not.
+        ...(adapter.env ? adapter.env(a.record) || {} : {}),
+        // Raw env stays last and stays file-only: it is the escape hatch, and
+        // it is the reason the panel refuses this key.
         ...(a.record.options?.env || {}),
       };
       // An agent may override the executable — a wrapper script, a pinned

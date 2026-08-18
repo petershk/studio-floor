@@ -78,6 +78,50 @@ export const PERSONAS = {
 const PERSONA_SUFFIX = ' You are not obliged to accept that framing — tell the team what you '
   + 'actually think you are best at.';
 
+/**
+ * Backends that speak an existing adapter's protocol.
+ *
+ * Kimi, GLM and several others publish Anthropic-compatible endpoints so that
+ * Claude Code can talk to them. That makes a separate adapter for each one a
+ * copy of claude.mjs with a different URL, which is a bad way to carry
+ * knowledge that is really just two strings. A preset is those two strings.
+ *
+ * Only the endpoint is recorded here. Model names move faster than this file
+ * can, and a stale default silently routing to a retired model is worse than
+ * asking for one; the key is always the human's to supply.
+ */
+export const PRESETS = {
+  kimi: {
+    provider: 'claude',
+    label: 'Kimi',
+    baseUrl: 'https://api.moonshot.ai/anthropic',
+    apiKeyEnv: 'MOONSHOT_API_KEY',
+    note: 'Moonshot Kimi, over its Anthropic-compatible endpoint. Set a model, '
+      + 'and put your key in MOONSHOT_API_KEY.',
+  },
+  glm: {
+    provider: 'claude',
+    label: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    apiKeyEnv: 'ZAI_API_KEY',
+    note: 'Zhipu GLM, over its Anthropic-compatible endpoint. Set a model, and '
+      + 'put your key in ZAI_API_KEY.',
+  },
+};
+
+/**
+ * Expand `preset: "kimi"` into the fields it stands for.
+ *
+ * Anything the agent states itself wins, so a preset is a starting point rather
+ * than something that overrides what the human wrote.
+ */
+export function applyPreset(agent) {
+  const p = PRESETS[agent.preset];
+  if (!p) return agent;
+  const { note, ...fields } = p;
+  return { ...fields, ...agent, provider: agent.provider || p.provider };
+}
+
 /** The roster you get if you never write a config. */
 export const DEFAULT_AGENTS = [
   { id: 'codex', provider: 'codex', label: 'Codex', persona: 'implementer' },
@@ -152,7 +196,7 @@ export function normaliseConfig(raw = {}) {
 
   const seen = new Set();
   cfg.agents = list.map((entry, i) => {
-    const a = typeof entry === 'string' ? { id: entry } : { ...entry };
+    const a = applyPreset(typeof entry === 'string' ? { id: entry } : { ...entry });
     const id = String(a.id || '').trim();
     if (!ID_RE.test(id)) {
       throw new Error(
@@ -169,6 +213,7 @@ export function normaliseConfig(raw = {}) {
     return {
       id,
       provider,
+      ...(a.preset ? { preset: a.preset } : {}),
       label: a.label || id.replace(/(^|-)([a-z])/g, (_, s, c) => s.replace('-', ' ') + c.toUpperCase()),
       persona,
       options: { ...(PROVIDER_DEFAULTS[provider] || {}), ...(a.options || {}), ...pickOptionKeys(a) },
@@ -199,7 +244,11 @@ export function normaliseConfig(raw = {}) {
 /** Option keys accepted inline on the agent record as a convenience. */
 function pickOptionKeys(a) {
   const out = {};
-  for (const k of ['model', 'sandbox', 'permissionMode', 'disableMcp', 'command', 'extraArgs', 'env']) {
+  for (const k of [
+    'model', 'sandbox', 'permissionMode', 'disableMcp',
+    'baseUrl', 'apiKeyEnv', 'apiKey',
+    'command', 'extraArgs', 'env',
+  ]) {
     if (a[k] !== undefined) out[k] = a[k];
   }
   return out;
@@ -278,8 +327,16 @@ export function writeConfig(file = CONFIG_FILE, cfg = defaultConfig()) {
  * what program runs. Those fields stay editable only by someone who can already
  * write files on the machine, which is a person who does not need this API.
  */
-export const AGENT_EDITABLE = ['id', 'provider', 'label', 'persona'];
-export const AGENT_EDITABLE_OPTIONS = ['model', 'sandbox', 'permissionMode', 'disableMcp'];
+export const AGENT_EDITABLE = ['id', 'provider', 'label', 'persona', 'preset'];
+export const AGENT_EDITABLE_OPTIONS = [
+  'model', 'sandbox', 'permissionMode', 'disableMcp',
+  // Where to send the requests, and how to authenticate.
+  //
+  // Unlike `env` these are safe for the settings panel: they are data an
+  // adapter turns into the two variables its CLI reads, not arbitrary
+  // environment. `NODE_OPTIONS` changes what code runs; a base URL does not.
+  'baseUrl', 'apiKeyEnv', 'apiKey',
+];
 export const AGENT_PROTECTED_OPTIONS = ['command', 'extraArgs', 'env'];
 export const RUNNER_EDITABLE = [
   'maxTurns', 'turnTimeoutMs', 'cooldownMs', 'staggerMs', 'commandLineBudget', 'idleBackoffMs',
@@ -412,6 +469,22 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
               errors.push(`agent #${i + 1}: permissionMode must be one of ${PERMISSION_MODES.join(', ')}`);
               continue;
             }
+            if (k === 'baseUrl' && v) {
+              // A base URL is where credentials get sent. An http:// endpoint
+              // would put the key on the wire in clear, and a non-URL would
+              // fail later inside the vendor CLI with a worse message.
+              let u;
+              try { u = new URL(String(v)); } catch { u = null; }
+              if (!u) { errors.push(`agent #${i + 1}: baseUrl must be a URL`); continue; }
+              if (u.protocol !== 'https:' && u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') {
+                errors.push(`agent #${i + 1}: baseUrl must be https (or localhost) — an API key must not travel in clear`);
+                continue;
+              }
+            }
+            if (k === 'apiKeyEnv' && v && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(v))) {
+              errors.push(`agent #${i + 1}: apiKeyEnv must be an environment variable name`);
+              continue;
+            }
             if (v !== '' && v !== undefined && v !== null) agent[k] = v;
           } else if (AGENT_PROTECTED_OPTIONS.includes(k)) {
             errors.push(
@@ -498,6 +571,9 @@ export function saveRawConfig(file, raw) {
 /** Everything the settings panel needs to render itself, so the UI hardcodes nothing. */
 export function configSchema() {
   return {
+    presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, {
+      label: v.label, provider: v.provider, baseUrl: v.baseUrl, apiKeyEnv: v.apiKeyEnv, note: v.note,
+    }])),
     personas: Object.keys(PERSONAS),
     sandboxes: SANDBOXES,
     permissionModes: PERMISSION_MODES,

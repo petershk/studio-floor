@@ -61,6 +61,48 @@ assert.ok(cModel.includes('claude-opus-5'));
 const extra = claude.args({ prompt, sessionId: 'sid', fresh: false, agent: agentOf({ extraArgs: ['--foo', 'bar'] }) });
 assert.ok(extra.includes('--foo') && extra.includes('bar'));
 
+// ------------------------------------------- pointing an adapter elsewhere
+
+{
+  // Kimi, GLM and others publish Anthropic-compatible endpoints so Claude Code
+  // can talk to them, which makes a separate adapter per vendor a copy of
+  // claude.mjs with a different URL. A preset is that URL.
+  const { normaliseConfig, PRESETS } = await import('../src/core/config.mjs');
+  const cfg = normaliseConfig({ agents: [
+    { id: 'kimi', preset: 'kimi', model: 'kimi-k2-turbo-preview' },
+    { id: 'plain', provider: 'claude' },
+  ] });
+  const [kimi, plain] = cfg.agents;
+
+  assert.equal(kimi.provider, 'claude', 'a preset rides an existing adapter');
+  assert.equal(kimi.options.baseUrl, PRESETS.kimi.baseUrl);
+  assert.equal(kimi.options.model, 'kimi-k2-turbo-preview', 'the model is for the human to choose');
+
+  const prev = process.env[PRESETS.kimi.apiKeyEnv];
+  process.env[PRESETS.kimi.apiKeyEnv] = 'secret-value';
+  try {
+    const env = claude.env(kimi);
+    assert.equal(env.ANTHROPIC_BASE_URL, PRESETS.kimi.baseUrl, 'the endpoint reaches the CLI');
+    assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'secret-value', 'the key is read from the named variable');
+    // A plain Claude agent must be left completely alone.
+    assert.deepEqual(claude.env(plain), {}, 'an unconfigured agent gets no overrides');
+  } finally {
+    if (prev === undefined) delete process.env[PRESETS.kimi.apiKeyEnv];
+    else process.env[PRESETS.kimi.apiKeyEnv] = prev;
+  }
+
+  // A literal key works but is the worse habit; both paths are supported.
+  const literal = normaliseConfig({ agents: [{ id: 'x', provider: 'claude', apiKey: 'abc123' }] }).agents[0];
+  assert.equal(claude.env(literal).ANTHROPIC_AUTH_TOKEN, 'abc123');
+
+  // Anything the agent states beats the preset, so a preset is a starting
+  // point rather than something that overrules the human.
+  const overridden = normaliseConfig({
+    agents: [{ id: 'k', preset: 'kimi', baseUrl: 'https://my-proxy.internal' }],
+  }).agents[0];
+  assert.equal(overridden.options.baseUrl, 'https://my-proxy.internal');
+}
+
 // -------------------------------------------------------------------- gemini
 
 const gemini = getAdapter('gemini');

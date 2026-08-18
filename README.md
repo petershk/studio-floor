@@ -131,6 +131,20 @@ Point it at a repository with no `PROJECT.md` and the team reads the code, works
 out what the project is, drafts the brief itself, and asks you to confirm before
 building anything.
 
+## Use a different backend
+
+Kimi, GLM and others speak Anthropic's protocol so Claude Code can reach them,
+which means they need no adapter — just an endpoint:
+
+```json
+{ "id": "kimi", "preset": "kimi", "model": "kimi-k2-turbo-preview" }
+```
+
+`preset` fills in the URL and the name of the environment variable holding your
+key. Settable in the **Settings** tab, and the only credential fields the panel
+may write — the key itself is read from a variable so it never lands in a file
+you commit.
+
 ## Add a provider
 
 An adapter is one file: how to launch the CLI fresh, how to resume the session

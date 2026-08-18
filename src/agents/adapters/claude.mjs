@@ -34,5 +34,27 @@ export default {
     return a;
   },
 
+  /**
+   * Point this CLI at something other than Anthropic.
+   *
+   * Kimi, GLM, DeepSeek and several others expose Anthropic-compatible
+   * endpoints precisely so Claude Code can talk to them, which means a second
+   * adapter for each would be a copy of this one with a different URL. Instead
+   * an agent declares where to go, and the two variables the CLI reads are set
+   * from it.
+   *
+   * `apiKeyEnv` names a variable to read the secret from and is the better
+   * habit: `apiKey` puts the literal key in studio_floor/config.json, which is
+   * a file worth committing, and committing a key is how they leak.
+   */
+  env(agent) {
+    const o = agent?.options || {};
+    const out = {};
+    if (o.baseUrl) out.ANTHROPIC_BASE_URL = String(o.baseUrl);
+    const key = o.apiKeyEnv ? process.env[o.apiKeyEnv] : o.apiKey;
+    if (key) out.ANTHROPIC_AUTH_TOKEN = String(key);
+    return out;
+  },
+
   parse: parseAnthropicStream,
 };

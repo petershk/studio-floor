@@ -447,6 +447,13 @@ function readConfigForUi() {
         // select it rather than showing the expanded paragraph in a text box.
         persona: personaKeyOf(a.persona) ?? a.persona,
         model: a.options?.model || '',
+        preset: a.preset || '',
+        baseUrl: a.options?.baseUrl || '',
+        apiKeyEnv: a.options?.apiKeyEnv || '',
+        // Never the key itself: a settings page that echoes a secret back is a
+        // secret one screenshot away from being public. Its presence is enough
+        // for the panel to warn about it.
+        apiKey: a.options?.apiKey ? true : false,
         sandbox: a.options?.sandbox || '',
         permissionMode: a.options?.permissionMode || '',
         disableMcp: a.options?.disableMcp ?? null,

@@ -137,6 +137,43 @@ with each other, and agreement is not what you are paying for.
 Give agents on the same provider **different** personas. Two identical Claudes
 will reach the same conclusion twice and call it consensus.
 
+## Pointing an agent at another backend
+
+Kimi, GLM, DeepSeek and others publish **Anthropic-compatible endpoints** so that
+Claude Code can talk to them. They therefore need no adapter of their own — a
+second adapter would be `claude.mjs` with a different URL. Point the existing one
+somewhere else instead:
+
+```json
+{ "id": "kimi", "preset": "kimi", "persona": "implementer",
+  "model": "kimi-k2-turbo-preview" }
+```
+
+A **preset** supplies the endpoint and the name of the variable to read the key
+from. Built in: `kimi` and `glm`. Anything you state yourself wins over the
+preset, so it is a starting point rather than an override.
+
+Without a preset, state it directly:
+
+| key | meaning |
+| --- | --- |
+| `baseUrl` | the API endpoint. Must be https, or localhost for a local proxy. |
+| `apiKeyEnv` | the **name** of an environment variable holding the key. Preferred. |
+| `apiKey` | the key itself. Works, but see below. |
+
+**Prefer `apiKeyEnv`.** `studio_floor/config.json` is a file worth committing, and
+a literal key in it is a key in your git history. Naming a variable keeps the
+secret out of the repository; the panel warns when it finds a literal one, and
+never echoes a key back to the browser.
+
+These are the only credential fields the settings panel may write, and only
+because they are data. Raw `env` stays file-only: `NODE_OPTIONS` changes what
+code runs, a base URL does not.
+
+Only the endpoint is built in, never a model name — those move faster than this
+file can, and a stale default silently routing to a retired model is worse than
+being asked for one.
+
 ## `adapters`
 
 Paths (resolved against the project directory) or package names, loaded before
