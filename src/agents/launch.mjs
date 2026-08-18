@@ -83,8 +83,15 @@ export function entrypointOfShim(shimPath) {
   }
   const m = text.match(/%dp0%\\?([^"%]+\.(?:js|mjs|cjs))/i);
   if (!m) return null;
-  const rel = m[1].replace(/^[\\/]+/, '');
-  const abs = path.join(path.dirname(shimPath), rel);
+  // The shim is a Windows file, so it always separates with backslashes — but
+  // this parser is pure and the suite exercises it everywhere. On POSIX,
+  // path.join does not treat `\` as a separator, so joining the captured
+  // `node_modules\pkg\bin\cli.js` produced one long filename that never
+  // existed and the function returned null. Split on either separator and let
+  // path.join put the platform's own back.
+  const parts = m[1].split(/[\\/]+/).filter(Boolean);
+  if (!parts.length) return null;
+  const abs = path.join(path.dirname(shimPath), ...parts);
   return fs.existsSync(abs) ? abs : null;
 }
 
