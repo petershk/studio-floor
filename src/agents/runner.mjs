@@ -398,7 +398,7 @@ export class Runner {
 
   #spawnTurn(a, adapter, args, transcript) {
     return new Promise((resolve) => {
-      const started = Date.now();
+      const startedAt = Date.now();
       const env = {
         ...process.env,
         STUDIO_AGENT: a.id,
@@ -433,6 +433,21 @@ export class Runner {
         return resolve({ code: -1, signal: null, durationMs: 0, sessionProblem: false, launchFailed: true });
       }
       a.child = child;
+
+      // Whether the process ever started. `spawn()` only throws synchronously
+      // for bad arguments; a command that is missing or unrunnable fails
+      // asynchronously with an 'error' event and then closes like any other
+      // exit. Without this the three-strike breaker never saw a launch failure
+      // on Windows, so a provider that could not start was retried for the
+      // entire turn budget while the log filled with identical errors.
+      //
+      // resolveLaunch above catches the common case before we get here. This
+      // catches the rest: a shim that resolves but names a missing entrypoint,
+      // a binary without the execute bit, a path that vanished between the
+      // resolve and the spawn.
+      let launched = false;
+      let launchError = null;
+      child.once('spawn', () => { launched = true; });
 
       let stdoutBuf = '';
       let stderrBuf = '';
@@ -484,14 +499,23 @@ export class Runner {
       });
 
       child.on('error', (err) => {
-        this.store.append('raw.error', a.id, { text: `process error: ${err.message}` });
+        if (!launched) launchError = err;
+        this.store.append('raw.error', a.id, {
+          text: launched ? `process error: ${err.message}` : `could not launch ${wanted}: ${err.message}`,
+        });
       });
 
       child.on('close', (code, signal) => {
         clearTimeout(timer);
         a.child = null;
         a.lastExit = { code, signal, at: new Date().toISOString() };
-        resolve({ code, signal, durationMs: Date.now() - started, sessionProblem });
+        resolve({
+          code,
+          signal,
+          durationMs: Date.now() - startedAt,
+          sessionProblem,
+          launchFailed: Boolean(launchError),
+        });
       });
     });
   }

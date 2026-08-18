@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STUDIO_CMD } from '../core/paths.mjs';
+import { isUntouchedBrief } from '../core/projects.mjs';
 import { AGENTS } from '../core/roster.mjs';
 
 /**
@@ -137,20 +138,39 @@ function projectSection(project = {}) {
   if (project.name) lines.push(`This project is called "${project.name}".`);
   if (project.goal) lines.push('', project.goal.trim());
 
+  // Always name the resolved path. A relative "PROJECT.md" is how this
+  // session argued in front of the human's spec: the file we read was not
+  // the file they wrote.
+  lines.push('', `Resolved brief path: ${abs}`);
+
+  let text = '';
   if (exists) {
+    try { text = fs.readFileSync(abs, 'utf8'); } catch { /* treat as missing */ }
+  }
+  const untouched = Boolean(text) && isUntouchedBrief(text);
+  const written = exists && Boolean(text) && !untouched;
+
+  if (written) {
     const size = fs.statSync(abs).size;
     lines.push(
       '',
-      `The human has written the specification at ${briefPath} (${size} bytes). Read it in`,
+      `The project brief is at ${abs} (${size} bytes). Read it in`,
       'full before you do anything else — it is the authority on what this team is for,',
-      'and it outranks anything summarised here.',
+      'and it outranks anything summarised here. If the file says it is inferred or a',
+      'draft, it is not a confirmed spec: treat it as a proposal.',
     );
   } else {
+    const heading = untouched
+      ? `=== ${briefPath} IS STILL THE UNTOUCHED INIT TEMPLATE — YOUR FIRST JOB IS TO WRITE A REAL ONE ===`
+      : `=== THERE IS NO ${briefPath} — YOUR FIRST JOB IS TO WRITE ONE ===`;
+    const why = untouched
+      ? `The file exists, but it is the scaffold \`studio init\` writes. Nobody has written down what this team is for. The studio was pointed at this`
+      : 'Nobody has written down what this team is for. The studio was pointed at this';
     lines.push(
       '',
-      `=== THERE IS NO ${briefPath} — YOUR FIRST JOB IS TO WRITE ONE ===`,
+      heading,
       '',
-      'Nobody has written down what this team is for. The studio was pointed at this',
+      why,
       'directory and told to work out what it is. That discovery is the work, and it',
       'comes before everything else.',
       '',

@@ -110,6 +110,10 @@ check(
   'the prompt must say the brief is missing',
 );
 check(
+  'a missing brief still names the resolved path',
+  prompt.includes(`Resolved brief path: ${path.resolve(tmp, 'PROJECT.md')}`),
+);
+check(
   'the agent is told to read the directory first',
   prompt.includes('git log') && prompt.includes('Read the directory before you conclude anything'),
 );
@@ -123,9 +127,48 @@ check(
   'the prompt must refuse to let agents implement against a brief they wrote themselves',
 );
 
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), `# Roster Test
+
+## Goal
+
+Describe what you want built, and why.
+
+## What done looks like
+
+- A concrete, checkable outcome.
+- Another one.
+
+## Decisions already made
+
+- Things that are settled. The team should not reopen these without new information.
+`);
+const withTemplate = firstTurnPrompt(getAgent('breaker'), 'brief', { project: config.project });
+check(
+  'an init-template brief is announced as unwritten',
+  withTemplate.includes('IS STILL THE UNTOUCHED INIT TEMPLATE'),
+  'the prompt must not treat studio init output as a human spec',
+);
+check(
+  'and it still refuses to implement against an inferred brief',
+  withTemplate.includes('Do not start') && withTemplate.includes('requesting-input'),
+);
+check(
+  'a template is not called a human specification',
+  !withTemplate.includes('The human has written the specification'),
+);
+
 fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# A real brief\n\nBuild the thing.\n');
 const withBrief = firstTurnPrompt(getAgent('breaker'), 'brief', { project: config.project });
-check('a present brief is pointed at', withBrief.includes('specification at PROJECT.md'));
+const absBrief = path.resolve(tmp, 'PROJECT.md');
+check('a present brief is pointed at by absolute path', withBrief.includes(absBrief), withBrief.slice(0, 400));
+check(
+  'existence is not claimed as human authorship',
+  !withBrief.includes('The human has written the specification'),
+);
+check(
+  'a non-template brief still warns that a draft is not confirmed',
+  withBrief.includes('inferred or a') && withBrief.includes('draft'),
+);
 
 console.log(failures ? `\n${failures} roster check(s) failed\n` : '\nall roster checks passed\n');
 process.exit(failures ? 1 : 0);

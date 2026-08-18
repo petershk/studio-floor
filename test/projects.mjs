@@ -19,7 +19,7 @@ process.env.STUDIO_USER_DIR = path.join(tmp, 'user');
 process.env.STUDIO_PROJECT_ROOT = tmp;
 
 const {
-  inspect, problemsWith, rememberProject, readProjects, forgetProject,
+  inspect, isUntouchedBrief, problemsWith, rememberProject, readProjects, forgetProject,
   requestSwitch, takeSwitch, resetProjectState,
 } = await import('../src/core/projects.mjs');
 
@@ -76,7 +76,33 @@ fs.writeFileSync(path.join(repo, 'package.json'), '{}');
   ok('history is found where the project keeps it', i.hasState && i.events === 3, `events=${i.events}`);
   ok('the config is found', i.hasConfig === true);
   ok('the brief is found', i.hasBrief === true);
+  ok('a written brief is not the init template', i.briefUntouched === false);
   ok('the new layout is not mistaken for the old', i.legacyLayout === false);
+}
+
+{
+  const scaffold = path.join(tmp, 'scaffold');
+  fs.mkdirSync(scaffold);
+  fs.writeFileSync(path.join(scaffold, 'PROJECT.md'), `# scaffold
+
+## Goal
+
+Describe what you want built, and why.
+
+## What done looks like
+
+- A concrete, checkable outcome.
+- Another one.
+
+## Decisions already made
+
+- Things that are settled. The team should not reopen these without new information.
+`);
+  const i = inspect(scaffold);
+  ok('the init template still counts as a file on disk', i.hasBrief === true);
+  ok('but inspect names it as untouched', i.briefUntouched === true);
+  ok('isUntouchedBrief agrees', isUntouchedBrief(fs.readFileSync(path.join(scaffold, 'PROJECT.md'), 'utf8')));
+  ok('a real sentence is not the template', !isUntouchedBrief('# studio-floor\n\nHarden the runner on Windows.\n'));
 }
 
 // A project set up before studio_floor existed must still be readable, or

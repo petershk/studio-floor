@@ -183,7 +183,9 @@ function projectBlock() {
       <div class="set-current">
         <div class="mono">${esc(cur.path)}</div>
         <div class="muted">
-          ${cur.hasBrief ? 'brief found' : '<b>no brief — the team will read the directory and draft one</b>'}
+          ${cur.briefUntouched
+            ? '<b>brief is still the init template — the team will draft a real one</b>'
+            : cur.hasBrief ? 'brief found' : '<b>no brief — the team will read the directory and draft one</b>'}
           · ${cur.events ? `${cur.events} recorded events` : 'no history yet'}
           ${cur.isGitRepo ? ' · git repo' : ' · <b>not a git repo</b>'}
           ${cur.legacyLayout ? ' · legacy .studio layout' : ''}
@@ -201,7 +203,9 @@ function projectBlock() {
     ? p.problems.map((x) => esc(x)).join('; ')
     : `<b>${esc(p.info.name)}</b> — ${p.info.entries} item(s)`
       + `${p.info.isGitRepo ? ', git repo' : ', not a git repo'}`
-      + `${p.info.hasBrief ? ', has a brief' : ', <b>no brief — the team will draft one</b>'}`
+      + `${p.info.briefUntouched
+        ? ', <b>brief is still the init template</b>'
+        : p.info.hasBrief ? ', has a brief' : ', <b>no brief — the team will draft one</b>'}`
       + `${p.info.events ? `, <b>${p.info.events} events to resume</b>` : ', no history yet'}`}
       </div>` : ''}
 

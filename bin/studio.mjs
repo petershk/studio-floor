@@ -179,6 +179,7 @@ async function doctor() {
   const { getAdapter, loadUserAdapters, providers } = await load(SRC, 'agents', 'adapters', 'index.mjs');
   const { resolveLaunch } = await load(SRC, 'agents', 'launch.mjs');
   const { CONFIG_FILE, PROJECT_ROOT } = await load(SRC, 'core', 'paths.mjs');
+  const { isUntouchedBrief } = await load(SRC, 'core', 'projects.mjs');
   const fs = await import('node:fs');
 
   if (Array.isArray(CONFIG.adapters) && CONFIG.adapters.length) {
@@ -186,16 +187,46 @@ async function doctor() {
   }
 
   let problems = 0;
-  const fail = (msg) => { problems++; console.log(`  FAIL  ${msg}`); };
+  let briefProblems = 0;
+  let agentProblems = 0;
+  const fail = (msg, kind = 'agent') => {
+    problems++;
+    if (kind === 'brief') briefProblems++;
+    else agentProblems++;
+    console.log(`  FAIL  ${msg}`);
+  };
   const ok = (msg) => console.log(`  ok    ${msg}`);
 
   console.log(`\n  studio doctor — ${PROJECT_ROOT}\n`);
   console.log(`  config     ${fs.existsSync(CONFIG_FILE) ? CONFIG_FILE : `${CONFIG_FILE} (absent — using defaults)`}`);
-  console.log(`  providers  ${providers().join(', ')}\n`);
 
   const brief = path.resolve(PROJECT_ROOT, CONFIG.project.brief || 'PROJECT.md');
-  if (fs.existsSync(brief)) ok(`project brief ${CONFIG.project.brief}`);
-  else fail(`no project brief at ${CONFIG.project.brief} — agents will not know what to build`);
+  console.log(`  brief      ${fs.existsSync(brief) ? brief : `${brief} (missing)`}`);
+  // A second PROJECT.md next door is how this session lost the human's spec:
+  // the editor wrote test_project/PROJECT.md while doctor and the runner
+  // read ./PROJECT.md and called that the brief.
+  const siblings = [];
+  try {
+    for (const ent of fs.readdirSync(PROJECT_ROOT, { withFileTypes: true })) {
+      if (!ent.isDirectory()) continue;
+      if (ent.name === 'node_modules' || ent.name === '.git' || ent.name === 'studio_floor') continue;
+      const other = path.resolve(PROJECT_ROOT, ent.name, 'PROJECT.md');
+      if (other !== brief && fs.existsSync(other)) siblings.push(other);
+    }
+  } catch { /* unreadable root is reported by the brief check below */ }
+  if (siblings.length) {
+    console.log(`  also saw   ${siblings.join(', ')} — not the brief this session will read`);
+  }
+
+  console.log(`  providers  ${providers().join(', ')}\n`);
+
+  if (!fs.existsSync(brief)) {
+    fail(`no project brief at ${brief} — agents will not know what to build`, 'brief');
+  } else if (isUntouchedBrief(fs.readFileSync(brief, 'utf8'))) {
+    fail(`project brief ${brief} is still the studio init template — write what you actually want built`, 'brief');
+  } else {
+    ok(`project brief ${brief}`);
+  }
 
   // One probe per distinct executable, not per agent: five Claude agents share
   // one binary and five identical "not found" lines help nobody.
@@ -230,8 +261,13 @@ async function doctor() {
     else fail(`${a.id} → ${a.provider}: "${cmd}" is not installed or not on PATH`);
   }
 
-  console.log(problems
-    ? `\n  ${problems} problem(s). The studio will start, but those agents cannot run.\n`
-    : '\n  ready\n');
+  if (!problems) {
+    console.log('\n  ready\n');
+  } else {
+    const bits = [];
+    if (briefProblems) bits.push('the team has no written brief');
+    if (agentProblems) bits.push('those agents cannot run');
+    console.log(`\n  ${problems} problem(s). The studio will start, but ${bits.join(', and ')}.\n`);
+  }
   process.exitCode = problems ? 1 : 0;
 }

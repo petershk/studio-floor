@@ -16,6 +16,22 @@ import {
  * history sitting where it was left. Reset is the deliberate act of deleting it.
  */
 
+/**
+ * Distinctive sentences from the `studio init` scaffold. All three together
+ * are the unfilled template; a written brief will not keep them.
+ */
+const TEMPLATE_MARKERS = [
+  'Describe what you want built, and why.',
+  'A concrete, checkable outcome.',
+  'Things that are settled. The team should not reopen these without new information.',
+];
+
+/** True when the file is still the scaffold `studio init` writes. */
+export function isUntouchedBrief(text) {
+  const t = String(text ?? '');
+  return TEMPLATE_MARKERS.every((m) => t.includes(m));
+}
+
 /** What a directory looks like from the outside, before we commit to it. */
 export function inspect(dir) {
   const root = path.resolve(dir);
@@ -27,6 +43,7 @@ export function inspect(dir) {
     readable: false,
     writable: false,
     hasBrief: false,
+    briefUntouched: false,
     hasConfig: false,
     hasState: false,
     isGitRepo: false,
@@ -58,7 +75,13 @@ export function inspect(dir) {
     out.writable = true;
   } catch { /* read-only: reported, not fatal to report on */ }
 
-  out.hasBrief = fs.existsSync(path.join(root, DEFAULT_BRIEF));
+  const briefPath = path.join(root, DEFAULT_BRIEF);
+  out.hasBrief = fs.existsSync(briefPath);
+  if (out.hasBrief) {
+    try {
+      out.briefUntouched = isUntouchedBrief(fs.readFileSync(briefPath, 'utf8'));
+    } catch { /* unreadable brief still counts as present */ }
+  }
 
   const modern = path.join(root, HOME_DIR_NAME);
   const legacyCfg = path.join(root, 'studio.config.json');
