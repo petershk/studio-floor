@@ -166,7 +166,13 @@ try {
   check('no phantom agent was projected', !state.agents['not-an-agent'], JSON.stringify(Object.keys(state.agents)));
 } finally {
   server.stop();
-  fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  // Retries, for the same reason smoke.mjs spells out: a Store holds an open
+  // append handle on events.jsonl, Windows refuses to remove a directory
+  // containing an open file, and the error is ENOTEMPTY — which does not
+  // sound like "a handle is still open". Node 22's rmSync retries internally
+  // and Linux does not care, so without this the failure appears on exactly
+  // one leg of the matrix, intermittently. It did: windows-latest / node 20.
+  fs.rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall CLI checks passed');
