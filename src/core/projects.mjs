@@ -32,6 +32,28 @@ export function isUntouchedBrief(text) {
   return TEMPLATE_MARKERS.every((m) => t.includes(m));
 }
 
+/**
+ * Markers an agent is told to leave when it drafts a brief. Any one of them
+ * means the file is a proposal, not a human spec. The template is not inferred:
+ * it is unwritten.
+ *
+ * These have to be phrases a competent human would not write about their own
+ * work. `STATUS: DRAFT` and `not by the human` failed that test — they are
+ * ordinary spec language, and matching them is the same class of bug as
+ * treating any written file as a human spec.
+ */
+const INFERRED_MARKERS = [
+  '[inferred]',
+  'agent-inferred',
+];
+
+/** True when the brief marks itself as an agent draft rather than a human spec. */
+export function isInferredBrief(text) {
+  if (isUntouchedBrief(text)) return false;
+  const t = String(text ?? '');
+  return INFERRED_MARKERS.some((m) => t.toLowerCase().includes(m.toLowerCase()));
+}
+
 /** What a directory looks like from the outside, before we commit to it. */
 export function inspect(dir) {
   const root = path.resolve(dir);
@@ -44,6 +66,7 @@ export function inspect(dir) {
     writable: false,
     hasBrief: false,
     briefUntouched: false,
+    briefInferred: false,
     hasConfig: false,
     hasState: false,
     isGitRepo: false,
@@ -79,7 +102,9 @@ export function inspect(dir) {
   out.hasBrief = fs.existsSync(briefPath);
   if (out.hasBrief) {
     try {
-      out.briefUntouched = isUntouchedBrief(fs.readFileSync(briefPath, 'utf8'));
+      const body = fs.readFileSync(briefPath, 'utf8');
+      out.briefUntouched = isUntouchedBrief(body);
+      out.briefInferred = isInferredBrief(body);
     } catch { /* unreadable brief still counts as present */ }
   }
 

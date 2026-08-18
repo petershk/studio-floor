@@ -19,7 +19,7 @@ process.env.STUDIO_USER_DIR = path.join(tmp, 'user');
 process.env.STUDIO_PROJECT_ROOT = tmp;
 
 const {
-  inspect, isUntouchedBrief, problemsWith, rememberProject, readProjects, forgetProject,
+  inspect, isUntouchedBrief, isInferredBrief, problemsWith, rememberProject, readProjects, forgetProject,
   requestSwitch, takeSwitch, resetProjectState,
 } = await import('../src/core/projects.mjs');
 
@@ -77,6 +77,7 @@ fs.writeFileSync(path.join(repo, 'package.json'), '{}');
   ok('the config is found', i.hasConfig === true);
   ok('the brief is found', i.hasBrief === true);
   ok('a written brief is not the init template', i.briefUntouched === false);
+  ok('a written brief is not inferred just because it exists', i.briefInferred === false);
   ok('the new layout is not mistaken for the old', i.legacyLayout === false);
 }
 
@@ -103,6 +104,34 @@ Describe what you want built, and why.
   ok('but inspect names it as untouched', i.briefUntouched === true);
   ok('isUntouchedBrief agrees', isUntouchedBrief(fs.readFileSync(path.join(scaffold, 'PROJECT.md'), 'utf8')));
   ok('a real sentence is not the template', !isUntouchedBrief('# studio-floor\n\nHarden the runner on Windows.\n'));
+  ok('the init template is not inferred', !isInferredBrief(fs.readFileSync(path.join(scaffold, 'PROJECT.md'), 'utf8')));
+}
+
+{
+  const draft = path.join(tmp, 'inferred');
+  fs.mkdirSync(draft);
+  fs.writeFileSync(path.join(draft, 'PROJECT.md'), `# Collapse
+
+> **STATUS: DRAFT — written by claude (agent), not by the human.**
+
+A column of cards. **[inferred]**
+`);
+  const i = inspect(draft);
+  ok('an inferred draft still counts as a file', i.hasBrief === true);
+  ok('it is not the init template', i.briefUntouched === false);
+  ok('inspect names it as inferred', i.briefInferred === true);
+  ok('isInferredBrief agrees', isInferredBrief(fs.readFileSync(path.join(draft, 'PROJECT.md'), 'utf8')));
+  ok('[inferred] alone is enough', isInferredBrief('# Collapse\n\nA column of cards. **[inferred]**\n'));
+  ok('agent-inferred alone is enough', isInferredBrief('# Collapse\n\nThis is an agent-inferred draft of the pitch.\n'));
+  ok('a human sentence is not inferred', !isInferredBrief('# studio-floor\n\nHarden the runner on Windows.\n'));
+  ok(
+    'a human who writes STATUS: DRAFT is not inferred',
+    !isInferredBrief('# Card puzzle\n\n**STATUS: DRAFT**\n\nBuild a fun puzzle with playing cards.\n'),
+  );
+  ok(
+    'a human who writes not by the human is not inferred',
+    !isInferredBrief('# Notes\n\nThis decision is not by the human reviewer; I made it.\n'),
+  );
 }
 
 // A project set up before studio_floor existed must still be readable, or

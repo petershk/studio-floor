@@ -13,6 +13,9 @@ import {
   inspect, problemsWith, recentProjects, requestSwitch, forgetProject,
 } from '../core/projects.mjs';
 import { updateStatus, pullUpdate } from '../core/update.mjs';
+import {
+  resolvePreview, previewVersion, resolvePreviewFile, PREVIEW_MIME,
+} from '../core/preview.mjs';
 
 /**
  * A shared secret the human's browser and the agents' CLI must present.
@@ -84,13 +87,23 @@ export function createHttpServer(store, runner) {
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-studio-token');
+    // The studio's own API is deliberately open cross-origin: it is a loopback
+    // dev tool and the event log is already readable by anything that can reach
+    // the port. The preview is not the same thing. It serves the human's
+    // project directory, so a page they happen to have open in another tab must
+    // not be able to read it out of the frame. Same server, narrower door.
+    if (!isPreviewPath(p)) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-studio-token');
+    }
     if (req.method === 'OPTIONS') return end(res, 204, '');
 
     // The login page and its assets are the only unauthenticated surface, so a
     // human with the token can get a browser into a state where it holds one.
-    if (TOKEN && p.startsWith('/api/') && !authorised(req, url)) {
+    if (TOKEN && (p.startsWith('/api/') || isPreviewPath(p)) && !authorised(req, url)) {
+      // The preview is an iframe, which cannot send a header, so its 401 has to
+      // be readable in the frame rather than a JSON blob nobody sees.
+      if (isPreviewPath(p)) return html(res, 401, previewPage('This studio requires a token', 'Open the preview with <code>?token=…</code> on the URL, or unset <code>server.token</code>.'));
       return json(res, { ok: false, error: 'unauthorised — this studio requires a token' }, 401);
     }
 
@@ -126,6 +139,13 @@ export function createHttpServer(store, runner) {
       if (p === '/api/inbox') return inbox(req, res, store, url);
 
       if (p === '/api/runner') return json(res, runner ? runner.status() : { agents: {} });
+
+      // What the human can watch while the team builds. Resolved per request on
+      // purpose: a game directory created one minute from now must light the
+      // pane up without a restart.
+      if (p === '/api/preview') return json(res, previewStatus());
+
+      if (isPreviewPath(p)) return servePreview(p, url, res);
 
       if (p === '/api/config' && req.method !== 'POST') return json(res, readConfigForUi());
 
@@ -1185,6 +1205,118 @@ function inbox(req, res, store, url) {
 }
 
 // ------------------------------------------------------------------- static
+
+/**
+ * Everything the /preview pane needs to say something true in one round trip:
+ * where it is serving from, why that directory and not another, what it
+ * rejected, and a version that changes when the directory does.
+ */
+/**
+ * `server.preview` as the config file says right now, not as it said at boot.
+ *
+ * Every other server setting is baked in at import because changing a port or a
+ * token mid-flight would be worse than a restart. This one is different: it is
+ * the answer to "where is the thing I am building", the human edits it exactly
+ * when the preview is showing them nothing, and telling them to restart the
+ * studio to see the effect of the setting that fixes the preview is a bad joke.
+ * The file is small and this is a loopback dev server, so it is re-read when
+ * its mtime moves and cached otherwise.
+ */
+let previewCfg = { mtime: null, value: SERVER_CONFIG.preview ?? null };
+function previewSetting() {
+  let mtime = null;
+  try { mtime = fs.statSync(CONFIG_FILE).mtimeMs; } catch { return previewCfg.value; }
+  if (mtime === previewCfg.mtime) return previewCfg.value;
+  try {
+    const raw = readRawConfig(CONFIG_FILE);
+    previewCfg = { mtime, value: raw?.server?.preview ?? null };
+  } catch {
+    // A config file that is mid-save or malformed must not take the preview
+    // down; the last good answer stands and /api/config reports the breakage.
+    previewCfg = { mtime, value: previewCfg.value };
+  }
+  return previewCfg.value;
+}
+
+function previewStatus() {
+  const info = resolvePreview(previewSetting(), PROJECT_ROOT);
+  const v = previewVersion(info.root);
+  return {
+    ok: true,
+    ...info,
+    version: v.version,
+    files: v.files,
+    projectRoot: PROJECT_ROOT,
+    configFile: CONFIG_FILE,
+    url: info.found ? '/preview/' : null,
+  };
+}
+
+/**
+ * Serve one file out of the preview root.
+ *
+ * Deliberately not `serveStatic` with a second base: that function trusts a
+ * string prefix, which a symlink defeats. resolvePreviewFile checks the real
+ * path after symlink resolution and returns null for anything outside.
+ *
+ * Nothing here is cached. The pane reloads the frame when the version changes,
+ * and a cached bundle would make that reload a lie.
+ */
+function servePreview(p, url, res) {
+  const info = resolvePreview(previewSetting(), PROJECT_ROOT);
+  if (!info.found) {
+    return html(res, 404, previewPage('Nothing to preview yet', esc(info.reason)));
+  }
+
+  // Without the trailing slash every relative URL inside the page resolves
+  // against /, which would quietly serve the studio's own assets into the game.
+  if (p === '/preview') {
+    res.writeHead(302, { Location: '/preview/' + (url.search || '') });
+    return res.end();
+  }
+
+  const file = resolvePreviewFile(info.root, p.slice('/preview'.length));
+  if (!file) {
+    // Two different 404s, because they send the reader to two different places.
+    // The directory being right and empty is the normal state of a project on
+    // the day the preview is wired up — telling that human "not in the preview
+    // directory" would send them to check a setting that is already correct.
+    if (!info.entry) {
+      return html(res, 404, previewPage(
+        'The preview directory has no page yet',
+        `<p>${esc(info.root)} is being watched. Create</p><p><code>${esc(info.entry || info.root + '\index.html')}</code></p>`
+        + '<p>and this frame fills in by itself.</p>',
+      ));
+    }
+    return html(res, 404, previewPage('Not in the preview directory', `<code>${esc(p)}</code> is not a file under <code>${esc(info.root)}</code>.`));
+  }
+  res.writeHead(200, {
+    'Content-Type': PREVIEW_MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+    'Cache-Control': 'no-store, must-revalidate',
+  });
+  fs.createReadStream(file).pipe(res);
+}
+
+function isPreviewPath(p) {
+  return p === '/preview' || p.startsWith('/preview/');
+}
+
+/** A page the human can read inside a 390px iframe. */
+function previewPage(title, detail) {
+  return `<!doctype html><meta charset="utf-8"><title>${esc(title)}</title>
+<style>body{font:13px/1.6 system-ui,sans-serif;background:#0d1016;color:#dfe6f1;margin:0;padding:20px}
+h1{font-size:15px;margin:0 0 8px}code{font-family:ui-monospace,monospace;color:#5da9ff;word-break:break-all}</style>
+<h1>${esc(title)}</h1><p>${detail}</p>`;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function html(res, code, body) {
+  res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(body);
+}
 
 function serveStatic(p, res) {
   const rel = p === '/' ? 'index.html' : p.replace(/^\//, '');

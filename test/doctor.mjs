@@ -121,5 +121,59 @@ fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Doctor Test\n\nHarden doctor s
   check('the session brief is still the resolved configured path', written.output.includes(mine));
 }
 
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), `# Collapse
+
+> **STATUS: DRAFT — written by claude (agent), not by the human.**
+
+A one-rule card puzzle. **[inferred]**
+`);
+
+{
+  const inferred = doctor(tmp);
+  const abs = path.resolve(tmp, 'PROJECT.md');
+  check(
+    'an inferred draft is still a present brief',
+    inferred.output.includes(`ok    project brief ${abs}`),
+    inferred.output.slice(0, 400),
+  );
+  check(
+    'an inferred draft is named as not a human spec',
+    /inferred\/draft — not a human spec/i.test(inferred.output),
+    inferred.output.slice(0, 500),
+  );
+  check(
+    'an inferred draft does not print a clean ready',
+    !/\n  ready\n/.test(inferred.output),
+  );
+  check(
+    'an inferred draft still says the studio can start',
+    /ready — brief is an agent-inferred draft/i.test(inferred.output),
+  );
+  check('an inferred draft is not a hard fail', inferred.code === 0, `exit ${inferred.code}`);
+}
+
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), `# Card puzzle
+
+**STATUS: DRAFT**
+
+Build a fun puzzle game with playing cards. This decision is not by the human
+reviewer — I wrote the spec myself.
+`);
+
+{
+  const humanDraft = doctor(tmp);
+  const abs = path.resolve(tmp, 'PROJECT.md');
+  check(
+    'a human STATUS: DRAFT is still a present brief',
+    humanDraft.output.includes(`ok    project brief ${abs}`),
+    humanDraft.output.slice(0, 400),
+  );
+  check(
+    'a human STATUS: DRAFT is not named as an agent draft',
+    !/inferred\/draft — not a human spec/i.test(humanDraft.output),
+    humanDraft.output.slice(0, 500),
+  );
+}
+
 console.log(failures ? `\n${failures} doctor check(s) failed\n` : '\nall doctor checks passed\n');
 process.exit(failures ? 1 : 0);

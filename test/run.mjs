@@ -39,6 +39,7 @@ const STUDIO_TESTS = [
   'address.mjs',
   'usage.mjs',
   'launch.mjs',
+  'launch-failed.mjs',
   'readme-examples.mjs',
   'roster.mjs',
   'cli.mjs',
@@ -54,6 +55,7 @@ const STUDIO_TESTS = [
   'human-provenance.mjs',
   'human-message-style.mjs',
   'scroll-follow.mjs',
+  'preview.mjs',
   'attention-withdraw.mjs',
   'reassign-notice.mjs',
 ];

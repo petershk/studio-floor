@@ -19,10 +19,27 @@ check('human among multiple recipients is highlighted',
   isHumanDirected({ from: 'grok', to: ['claude', 'human'], text: 'review' }));
 check('legacy Human: broadcast remains highlighted',
   isHumanDirected({ from: 'claude', to: [], text: 'Human: this is ready' }));
+// The separator the agents actually reach for. Only the colon was recognised,
+// so real answers to the human sat unmarked in the conversation — this is the
+// exact text shape found in the live log.
+check('an em-dash broadcast is highlighted',
+  isHumanDirected({ from: 'grok-imp', to: [], text: 'Human — ATT-1622 and ATT-1623, already acted on' }));
+check('an en-dash broadcast is highlighted',
+  isHumanDirected({ from: 'grok', to: [], text: 'Human – answering your three, in order' }));
+check('a hyphen broadcast is highlighted',
+  isHumanDirected({ from: 'claude', to: [], text: 'Human - the suite is green' }));
+check('a comma broadcast is highlighted',
+  isHumanDirected({ from: 'claude', to: [], text: 'Human, the build is red' }));
 check('ordinary broadcast is not highlighted',
   !isHumanDirected({ from: 'claude', to: [], text: 'turn complete' }));
 check('a casual human mention is not addressing',
   !isHumanDirected({ from: 'grok', to: [], text: 'the human-facing route passed' }));
+// The compound word this is most likely to meet at the start of a sentence.
+// It is a hyphen with no space before it, which is why the space is required.
+check('a leading compound word is not addressing',
+  !isHumanDirected({ from: 'grok', to: [], text: 'human-facing routes are all green' }));
+check('the bare word alone is not addressing',
+  !isHumanDirected({ from: 'grok', to: [], text: 'humans are the point of this' }));
 check('human-origin messages keep their existing treatment',
   !isHumanDirected({ from: 'human', to: ['codex'], text: 'please review' }));
 

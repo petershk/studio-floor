@@ -169,6 +169,44 @@ check(
   'a non-template brief still warns that a draft is not confirmed',
   withBrief.includes('inferred or a') && withBrief.includes('draft'),
 );
+check(
+  'a human-looking brief is not announced as an agent draft',
+  !withBrief.includes('IS AN AGENT-INFERRED DRAFT'),
+);
+
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), `# Collapse
+
+> **STATUS: DRAFT — written by claude (agent), not by the human.**
+
+A one-rule card puzzle. **[inferred]**
+`);
+const withInferred = firstTurnPrompt(getAgent('breaker'), 'brief', { project: config.project });
+check(
+  'an inferred draft is announced as not a human spec',
+  withInferred.includes('IS AN AGENT-INFERRED DRAFT, NOT A HUMAN SPEC'),
+);
+check(
+  'an inferred draft is not called the authority',
+  !withInferred.includes('it is the authority on what this team is for'),
+);
+check(
+  'an inferred draft is not called a human specification',
+  !withInferred.includes('The human has written the specification'),
+);
+check(
+  'an inferred draft still names the resolved path',
+  withInferred.includes(absBrief),
+);
+check(
+  'an inferred draft does not issue a blanket implement-hold',
+  !withInferred.includes('until the human confirms'),
+  'DEC-03 is that confirmation; the prompt must not re-issue the hold',
+);
+check(
+  'an inferred draft defers to recorded decisions',
+  withInferred.includes('unless a recorded decision has already')
+    && withInferred.includes('authorized that'),
+);
 
 console.log(failures ? `\n${failures} roster check(s) failed\n` : '\nall roster checks passed\n');
 process.exit(failures ? 1 : 0);

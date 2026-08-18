@@ -10,6 +10,7 @@ import { isHumanDirected } from './message-addressing.js';
 import { refillKeepingPlace } from './scroll-follow.js';
 import { refreshSettings } from './settings.js';
 import { renderUsage } from './usage.js';
+import { showPreview, hidePreview } from './preview.js';
 import { startUpdateWatch } from './update-badge.js';
 
 const $ = (id) => document.getElementById(id);
@@ -488,6 +489,9 @@ function wireControls() {
       if (t.dataset.tab === 'raw') renderRaw();
       if (t.dataset.tab === 'settings') refreshSettings();
       if (t.dataset.tab === 'usage') renderUsage(state);
+      // The preview polls the server, so it is started and stopped by hand rather
+      // than left running behind a hidden pane.
+      if (t.dataset.tab === 'preview') showPreview(); else hidePreview();
     };
   });
 

@@ -179,7 +179,7 @@ async function doctor() {
   const { getAdapter, loadUserAdapters, providers } = await load(SRC, 'agents', 'adapters', 'index.mjs');
   const { resolveLaunch } = await load(SRC, 'agents', 'launch.mjs');
   const { CONFIG_FILE, PROJECT_ROOT } = await load(SRC, 'core', 'paths.mjs');
-  const { isUntouchedBrief } = await load(SRC, 'core', 'projects.mjs');
+  const { isUntouchedBrief, isInferredBrief } = await load(SRC, 'core', 'projects.mjs');
   const fs = await import('node:fs');
 
   if (Array.isArray(CONFIG.adapters) && CONFIG.adapters.length) {
@@ -220,10 +220,15 @@ async function doctor() {
 
   console.log(`  providers  ${providers().join(', ')}\n`);
 
+  let inferredBrief = false;
   if (!fs.existsSync(brief)) {
     fail(`no project brief at ${brief} — agents will not know what to build`, 'brief');
   } else if (isUntouchedBrief(fs.readFileSync(brief, 'utf8'))) {
     fail(`project brief ${brief} is still the studio init template — write what you actually want built`, 'brief');
+  } else if (isInferredBrief(fs.readFileSync(brief, 'utf8'))) {
+    inferredBrief = true;
+    ok(`project brief ${brief}`);
+    console.log(`  note   ${brief} is marked inferred/draft — not a human spec`);
   } else {
     ok(`project brief ${brief}`);
   }
@@ -262,7 +267,11 @@ async function doctor() {
   }
 
   if (!problems) {
-    console.log('\n  ready\n');
+    if (inferredBrief) {
+      console.log('\n  ready — brief is an agent-inferred draft, not a human spec\n');
+    } else {
+      console.log('\n  ready\n');
+    }
   } else {
     const bits = [];
     if (briefProblems) bits.push('the team has no written brief');

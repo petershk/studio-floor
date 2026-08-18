@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STUDIO_CMD } from '../core/paths.mjs';
-import { isUntouchedBrief } from '../core/projects.mjs';
+import { isUntouchedBrief, isInferredBrief } from '../core/projects.mjs';
 import { AGENTS } from '../core/roster.mjs';
 
 /**
@@ -53,6 +53,16 @@ The commands that matter (run \`${STUDIO_CMD} help\` for the full list):
         Talk to the team. --to is optional (omit it to address everyone).
         Kinds: chat, announce, question, answer, proposal, challenge, delegation,
         review, concern, concede.
+
+    ${STUDIO_CMD} say "text" --to human --kind answer
+        \`human\` is a valid recipient like any teammate. Use it whenever you are
+        speaking to the human rather than the team — answering them, or telling
+        them something they are waiting on. The interface marks those messages so
+        they are findable in a long conversation.
+
+        Do NOT instead broadcast with no --to and open the text with "Human — ".
+        A message addressed that way is addressed to nobody: it reads as team
+        chatter, and the human has to find it by eye.
 
     ${STUDIO_CMD} task new --title "..." --objective "..." --owner ${others}
     ${STUDIO_CMD} task set TASK-03 --state active --note "why"
@@ -148,9 +158,23 @@ function projectSection(project = {}) {
     try { text = fs.readFileSync(abs, 'utf8'); } catch { /* treat as missing */ }
   }
   const untouched = Boolean(text) && isUntouchedBrief(text);
-  const written = exists && Boolean(text) && !untouched;
+  const inferred = Boolean(text) && !untouched && isInferredBrief(text);
+  const written = exists && Boolean(text) && !untouched && !inferred;
 
-  if (written) {
+  if (inferred) {
+    const size = fs.statSync(abs).size;
+    lines.push(
+      '',
+      `=== ${briefPath} IS AN AGENT-INFERRED DRAFT, NOT A HUMAN SPEC ===`,
+      '',
+      `The file at ${abs} (${size} bytes) marks itself as inferred or a draft.`,
+      'Read it. Treat it as a proposal. It is not the authority on what this team',
+      'is for — recorded decisions and the human outrank it. Do not implement',
+      'product features against it unless a recorded decision has already',
+      'authorized that. Check the brief for decisions before treating a hold',
+      'as current.',
+    );
+  } else if (written) {
     const size = fs.statSync(abs).size;
     lines.push(
       '',

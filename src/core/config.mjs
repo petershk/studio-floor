@@ -36,6 +36,18 @@ export const DEFAULT_SERVER = {
   host: '127.0.0.1',
   /** Bearer token required by write routes. Null means an open local server. */
   token: null,
+  /**
+   * The directory the /preview pane serves — the thing being built, not the
+   * studio's own UI. Relative to the project root, or absolute.
+   *
+   * Null means serve nothing. It does NOT mean detect: src/core/preview.mjs
+   * ranks the directories that could be previewed and offers them in the pane,
+   * and a human picks one. A path that is set and wrong is reported as wrong;
+   * it is never quietly replaced by a plausible-looking neighbour, because
+   * serving a different directory than the human named is the exact class of
+   * quiet substitution this project keeps finding in itself.
+   */
+  preview: null,
 };
 
 /**
