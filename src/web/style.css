@@ -509,3 +509,5 @@ main {
 .set-probe.bad { border-color: #a5762f; background: #2a2113; color: #e0a06a; }
 .set-recent { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .set-recent .muted { font-size: 11px; margin-right: 2px; }
+.set-commits { margin: 6px 0 0; padding-left: 18px; font-family: var(--mono, monospace); font-size: 11px; }
+.set-commits li { margin: 1px 0; }

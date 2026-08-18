@@ -134,9 +134,9 @@ export function recentProjects() {
  * there. A file rather than an argument because the supervisor is the parent and
  * has no other channel back from the child.
  */
-export function requestSwitch(dir, { reset = false } = {}) {
+export function requestSwitch(dir, { reset = false, reason = 'switch' } = {}) {
   ensureUserDir();
-  atomicWrite(SWITCH_FILE, { path: path.resolve(dir), reset: Boolean(reset) });
+  atomicWrite(SWITCH_FILE, { path: path.resolve(dir), reset: Boolean(reset), reason });
 }
 
 export function takeSwitch() {

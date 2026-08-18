@@ -12,6 +12,7 @@ import {
 import {
   inspect, problemsWith, recentProjects, requestSwitch, forgetProject,
 } from '../core/projects.mjs';
+import { updateStatus, pullUpdate } from '../core/update.mjs';
 
 /**
  * A shared secret the human's browser and the agents' CLI must present.
@@ -135,6 +136,12 @@ export function createHttpServer(store, runner) {
 
       // Look before you leap: the panel calls this as you type, so a switch is
       // never offered for a directory that cannot take one.
+      if (p === '/api/update' && req.method !== 'POST') {
+        // The network call is opt-in: rendering the settings page must not
+        // reach out to a remote on its own.
+        return json(res, updateStatus({ fetch: url.searchParams.get('check') === '1' }));
+      }
+
       if (p === '/api/projects/inspect') {
         const dir = url.searchParams.get('path') || '';
         if (!dir) return json(res, { ok: false, error: 'no path given' }, 400);
@@ -159,6 +166,17 @@ export function createHttpServer(store, runner) {
         // stop an honest mistake from impersonating the human, which is the failure
         // that actually happened.
         if (p.startsWith('/api/human/')) body.via = req.headers.origin || req.headers.referer ? 'browser' : 'api';
+
+        if (p === '/api/update') {
+          if (!sameOrigin(req)) {
+            return json(res, {
+              ok: false,
+              error: 'refused: this request came from another origin. Updating runs git '
+                + 'against the installation and restarts it, so it is not writable cross-site.',
+            }, 403);
+          }
+          return runUpdate(store, runner, res);
+        }
 
         if (p === '/api/projects') {
           if (!sameOrigin(req)) {
@@ -254,6 +272,47 @@ export function createHttpServer(store, runner) {
   // and should not do that without STUDIO_TOKEN.
   server.listen(PORT, HOST);
   return server;
+}
+
+// -------------------------------------------------------------------- update
+
+/**
+ * Fast-forward the studio's own clone and restart into it.
+ *
+ * The restart is the supervisor's, exactly as for a project switch: this process
+ * loaded its modules at import and cannot swap them underneath itself. It goes
+ * back to the same project, so nothing about the team's state changes — only the
+ * code running it.
+ */
+async function runUpdate(store, runner, res) {
+  const result = pullUpdate();
+  if (!result.ok) return json(res, { ok: false, errors: result.errors }, 400);
+
+  if (!result.changed) {
+    return json(res, { ok: true, changed: false, message: 'already up to date' });
+  }
+
+  store.append('human.control', null, {
+    action: 'update',
+    text: `updated the studio from ${result.from} to ${result.to}`
+      + `${result.commits?.length ? ` — ${result.commits.length} commit(s)` : ''}`,
+    via: 'browser',
+    from: result.from,
+    to: result.to,
+  });
+
+  json(res, { ok: true, changed: true, from: result.from, to: result.to, commits: result.commits });
+
+  setTimeout(async () => {
+    try {
+      await runner?.stopAll('the human updated the studio');
+    } catch { /* leaving anyway */ }
+    // Same project, new code.
+    requestSwitch(PROJECT_ROOT, { reset: false, reason: 'update' });
+    store.close?.();
+    process.exit(EXIT_SWITCH);
+  }, 250);
+  return undefined;
 }
 
 // ------------------------------------------------------------------ projects

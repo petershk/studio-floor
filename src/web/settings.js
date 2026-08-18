@@ -15,6 +15,8 @@
 
 const $ = (id) => document.getElementById(id);
 
+let update = null;    // the last /api/update payload
+let checking = false;
 let projects = null;  // the last /api/projects payload
 let pathDraft = '';   // the directory the human is typing
 let probe = null;     // what /api/projects/inspect says about it
@@ -24,9 +26,12 @@ let dirty = false;
 let notice = null;    // { kind, text } shown above the form
 
 async function load() {
-  const [r, pr] = await Promise.all([fetch('/api/config'), fetch('/api/projects')]);
+  const [r, pr, ur] = await Promise.all([
+    fetch('/api/config'), fetch('/api/projects'), fetch('/api/update'),
+  ]);
   data = await r.json();
   projects = await pr.json().catch(() => null);
+  update = await ur.json().catch(() => null);
   if (!data.ok) {
     render();
     return;
@@ -90,6 +95,7 @@ function render() {
     ${dirty ? '<div class="set-notice">Unsaved changes.</div>' : ''}
 
     ${projectBlock()}
+    ${updateBlock()}
 
     <section class="set-block">
       <h3>Project</h3>
@@ -218,6 +224,65 @@ function projectBlock() {
     </section>`;
 }
 
+/**
+ * Updating the studio from inside the studio.
+ *
+ * Deliberately quiet until asked. Checking means a network call, and a settings
+ * page that phoned home every time it rendered would be slow and presumptuous.
+ * If the installation cannot be updated — not a git clone, no upstream, local
+ * commits, a dirty tree — it says which, because every one of those is something
+ * a human should look at in a terminal rather than have a button paper over.
+ */
+function updateBlock() {
+  if (!update?.isGitRepo) {
+    return `
+      <section class="set-block">
+        <h3>Updates</h3>
+        <p class="muted">This studio was not installed from a git clone, so it cannot update
+        itself. ${update?.root ? `<span class="mono">${esc(update.root)}</span>` : ''}</p>
+      </section>`;
+  }
+
+  const blocked = update.reasons?.length > 0;
+  const behind = update.behind || 0;
+
+  return `
+    <section class="set-block">
+      <h3>Updates</h3>
+      <div class="set-current">
+        <div class="mono">${esc(update.branch || '?')} @ ${esc(update.head || '?')}</div>
+        <div class="muted">
+          ${esc(update.root)}
+          ${update.remote ? `<br>${esc(update.remote)}` : ''}
+        </div>
+      </div>
+
+      ${blocked ? `<div class="set-probe bad">
+        Cannot update automatically: ${update.reasons.map(esc).join('; ')}.
+        Update from a terminal instead.
+      </div>` : ''}
+
+      ${!blocked && update.fetched && behind === 0
+    ? '<div class="set-probe good">Up to date.</div>' : ''}
+
+      ${!blocked && behind > 0 ? `<div class="set-probe good">
+        <b>${behind} update${behind === 1 ? '' : 's'} available.</b>
+        ${update.commits?.length ? `<ul class="set-commits">${
+      update.commits.slice(0, 8).map((c) => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+      </div>` : ''}
+
+      <div class="set-actions">
+        <button class="btn" id="upd-check" type="button" ${checking ? 'disabled' : ''}>
+          ${checking ? 'Checking…' : 'Check for updates'}</button>
+        <button class="btn primary" id="upd-apply" type="button"
+          ${blocked || behind === 0 ? 'disabled' : ''}>Update and restart</button>
+      </div>
+      <p class="muted">Updating fast-forwards this clone and restarts the studio on the new
+      code. It never merges: if the update needs one, it stops and tells you. Your project,
+      its brief and its history are untouched.</p>
+    </section>`;
+}
+
 function agentCard(a, i, s) {
   const prot = data.protectedFields?.[a.id] || [];
   const isCustomPersona = a.persona && !s.personas.includes(a.persona);
@@ -299,6 +364,7 @@ function agentCard(a, i, s) {
 
 function wire() {
   wireProject();
+  wireUpdate();
   $('settings').querySelectorAll('[data-path]').forEach((input) => {
     input.oninput = () => onEdit(input);
     input.onchange = () => onEdit(input);
@@ -357,6 +423,48 @@ function wire() {
   };
 
   $('set-save').onclick = save;
+}
+
+function wireUpdate() {
+  const check = $('upd-check');
+  if (check) {
+    check.onclick = async () => {
+      checking = true; render();
+      try {
+        update = await (await fetch('/api/update?check=1')).json();
+      } catch {
+        setNotice('warn', 'Could not check for updates.');
+      }
+      checking = false; render();
+    };
+  }
+
+  const apply = $('upd-apply');
+  if (apply) {
+    apply.onclick = async () => {
+      if (!confirm('Update the studio and restart it?\n\nAgents will be stopped. '
+        + 'Your project and its history are untouched.')) return;
+      setNotice('', 'Updating… the studio will restart and this page will reconnect.');
+      render();
+      let r;
+      try {
+        r = await (await fetch('/api/update', { method: 'POST' })).json();
+      } catch {
+        // The server may exit before the response lands. That is a successful
+        // update, not a failure.
+        return waitForRestart();
+      }
+      if (!r.ok) {
+        setNotice('warn', (r.errors || [r.error]).map(esc).join('; '));
+        return render();
+      }
+      if (!r.changed) {
+        setNotice('ok', 'Already up to date.');
+        return render();
+      }
+      return waitForRestart();
+    };
+  }
 }
 
 function wireProject() {

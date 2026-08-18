@@ -1,0 +1,22 @@
+# Line endings are LF, everywhere, in the repository and in the working tree.
+#
+# Without this, a Windows clone with core.autocrlf=true checks files out as CRLF
+# and git prints "LF will be replaced by CRLF" on every add. Worse than the noise
+# is what it hides: a file can then report as modified while its content is
+# byte-identical to HEAD, so `git status` shows changes that do not exist and
+# `git pull` refuses over them. That cost a real debugging detour.
+#
+# Everything here is text and nothing is a Windows-only script, so LF is correct
+# on every platform. Editors on Windows have handled LF for two decades.
+* text=auto eol=lf
+
+# Explicit for the things where it matters most.
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.yml   text eol=lf
+Dockerfile text eol=lf
+LICENSE text eol=lf
