@@ -157,6 +157,14 @@ theirs, and a reported cost is always used in preference to an estimate.
 `cacheRead` and `cacheWrite` fall back to the `input` rate when omitted, which
 understates the saving from cached input and overstates the cost of writing it.
 
+**Everything the Usage tab shows is an estimate.** It is arithmetic on token
+counts and per-token rates. Your actual bill can be very different: plans,
+credits, discounts, minimums, batch rates and subscription allowances all change
+what you are really charged, and some providers are not billed per token at all
+— a ChatGPT-authenticated Codex draws on a plan allowance and has no per-token
+invoice to compare against. Use the tab to compare runs and to notice one
+getting expensive. Consult each provider's own billing pages for what you owe.
+
 **No rate card ships with the studio, and that is deliberate.** A built-in table
 would be confidently wrong the day a vendor changed its pricing, and a wrong bill
 is worse than no bill. Until you set prices, the Usage tab counts tokens for

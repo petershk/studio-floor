@@ -524,3 +524,16 @@ main {
 .u-table td { border-bottom: 1px solid var(--line); }
 .u-table tbody tr:last-child td { border-bottom: 0; }
 .u-table .r { text-align: right; }
+.u-warn {
+  border: 1px solid #a5762f; background: #2a2113; color: #e6c9a0;
+  padding: 10px 13px; border-radius: 5px; margin: 2px 0 16px;
+  font-size: 12px; line-height: 1.55; max-width: 78ch;
+}
+.u-warn b { color: #ffd9a0; }
+
+/* An update waiting is the one thing in the top bar that should interrupt you. */
+.btn.update {
+  background: #8c2f2f; border-color: #b04141; color: #ffe9e9; font-weight: 600;
+}
+.btn.update:hover { background: #a63838; }
+.btn.update:disabled { opacity: .6; }

@@ -22,7 +22,7 @@ export function renderUsage(s) {
   const rows = Object.entries(byAgent);
 
   if (!rows.length) {
-    el.innerHTML = '<div class="set-head"><div><strong>Usage</strong></div></div>'
+    el.innerHTML = '<div class="set-head"><div><strong>Usage &amp; cost estimate</strong></div></div>'
       + '<p class="muted">No usage recorded yet. Numbers appear as agents finish turns.</p>';
     return;
   }
@@ -57,14 +57,23 @@ export function renderUsage(s) {
 
   el.innerHTML = `
     <div class="set-head">
-      <div><strong>Usage</strong>
+      <div><strong>Usage &amp; cost estimate</strong>
         <span class="muted">${billed} billed turn${billed === 1 ? '' : 's'}</span></div>
     </div>
 
+    <div class="u-warn">
+      <b>These are estimates.</b> Every figure here is derived from token counts and
+      per-token rates. Your actual bill can be <b>very different</b> — plans, credits,
+      discounts, minimums, batch rates and subscription allowances all change what you are
+      really charged, and some providers here are not billed per token at all.
+      <b>Check your provider's own billing pages for what you actually owe.</b>
+      Use this to compare runs and spot a run that is getting expensive, not to predict an invoice.
+    </div>
+
     <div class="u-big">
-      <div class="u-stat"><span class="u-n">${money(totalCost)}</span><span class="u-l">total so far</span></div>
+      <div class="u-stat"><span class="u-n">${money(totalCost)}</span><span class="u-l">estimated total so far</span></div>
       <div class="u-stat"><span class="u-n">${tokens(totalTok)}</span><span class="u-l">tokens in + out</span></div>
-      <div class="u-stat"><span class="u-n">${money(billed ? totalCost / billed : 0)}</span><span class="u-l">average per turn</span></div>
+      <div class="u-stat"><span class="u-n">${money(billed ? totalCost / billed : 0)}</span><span class="u-l">estimated average per turn</span></div>
     </div>
 
     ${unpriced.length ? `<div class="set-notice warn">
@@ -75,16 +84,17 @@ export function renderUsage(s) {
     </div>` : ''}
 
     ${anyEstimated ? `<div class="set-notice">
-      Figures marked <span class="pill">est</span> come from your configured rates, not from the
-      provider. They are exactly as right as those rates are.
+      Figures marked <span class="pill">est</span> are computed from the rates in your config.
+      Figures without it were reported by the provider for that turn — closer to the truth, but
+      still not an invoice.
     </div>` : ''}
 
     <section class="set-block">
       <h3>By agent</h3>
       <div class="u-scroll"><table class="u-table">
         <thead><tr><th>agent</th><th class="r">turns</th><th class="r">in</th>
-          <th class="r">cached</th><th class="r">out</th><th class="r">cost</th>
-          <th class="r">per turn</th></tr></thead>
+          <th class="r">cached</th><th class="r">out</th><th class="r">cost estimate</th>
+          <th class="r">est per turn</th></tr></thead>
         <tbody>${agentRows}</tbody>
       </table></div>
       <p class="muted">Cached input is charged at a reduced rate by every provider here, which is
@@ -98,7 +108,7 @@ export function renderUsage(s) {
       <p class="muted">Newest first. A turn appears once its provider reports what it used.</p>
       <div class="u-scroll"><table class="u-table">
         <thead><tr><th>when</th><th>agent</th><th class="r">turn</th><th class="r">in</th>
-          <th class="r">out</th><th class="r">cost</th><th class="r">took</th></tr></thead>
+          <th class="r">out</th><th class="r">cost estimate</th><th class="r">took</th></tr></thead>
         <tbody>${turnRows}</tbody>
       </table></div>
     </section>`;

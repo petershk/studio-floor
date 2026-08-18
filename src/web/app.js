@@ -10,6 +10,7 @@ import { isHumanDirected } from './message-addressing.js';
 import { refillKeepingPlace } from './scroll-follow.js';
 import { refreshSettings } from './settings.js';
 import { renderUsage } from './usage.js';
+import { startUpdateWatch } from './update-badge.js';
 
 const $ = (id) => document.getElementById(id);
 /**
@@ -59,6 +60,7 @@ await refresh();
 await primeRaw();
 connect();
 wireControls();
+startUpdateWatch();
 
 async function refresh() {
   const r = await fetch('/api/state');

@@ -178,4 +178,20 @@ const usage = (agent, data) => ({ seq: ++seq, ts: '2026-01-01T00:00:00.000Z', ki
   ok('but the totals still count every turn', snap.byAgent.claude.output === 50, String(snap.byAgent.claude.output));
 }
 
+// ------------------------------------------------- the panel must not overclaim
+{
+  // Money on a screen is believed. This panel presents arithmetic on token counts,
+  // which is not an invoice and can be a long way from one, so the disclaimer is
+  // part of the feature rather than decoration, and is asserted like any other
+  // behaviour so it cannot be quietly dropped.
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/web/usage.js', import.meta.url), 'utf8');
+  ok('the panel says the figures are estimates', /These are estimates/.test(src));
+  ok('it warns the real bill can differ a lot', /very different/i.test(src));
+  ok('it points people at their provider billing', /billing pages/i.test(src));
+  ok('both cost columns are labelled as estimates',
+    (src.match(/cost estimate/g) || []).length >= 2);
+  ok('the headline total is labelled estimated', /estimated total so far/.test(src));
+}
+
 console.log(process.exitCode ? '\nusage checks FAILED\n' : `\nall ${n} usage checks passed\n`);
