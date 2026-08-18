@@ -122,7 +122,13 @@ function render() {
       <p class="muted">These apply immediately — the runner re-reads them every loop.</p>
       <div class="set-grid">
         ${num('Turn budget per agent', draft.runner.maxTurns, 'runner.maxTurns',
-    'A hard stop. The most reliable brake on cost.')}
+    'A hard stop. The most reliable brake on cost. 0 means no limit.')}
+        ${num('Time budget for this run (ms)', draft.runner.maxWallMs, 'runner.maxWallMs',
+    '0 means no limit. 3600000 is one hour. Counts from the first turn after the studio '
+    + 'started, not from the whole history, and stops the whole team.')}
+        ${num('Spend budget for this run ($)', draft.runner.maxSpendUsd, 'runner.maxSpendUsd',
+    '0 means no limit. Estimated: an agent whose provider reports no cost and has no rate '
+    + 'in `prices` is not counted, so this is a floor rather than a bill.', '0.01')}
         ${num('Turn timeout (ms)', draft.runner.turnTimeoutMs, 'runner.turnTimeoutMs',
     'A turn running longer than this is killed.')}
         ${num('Cooldown between turns (ms)', draft.runner.cooldownMs, 'runner.cooldownMs',
@@ -745,10 +751,13 @@ function area(label, value, path, when, help = '') {
   </label>`;
 }
 
-function num(label, value, path, help = '') {
+// `step` because a number input defaults to whole numbers, and a spend budget
+// of $2.50 would be rejected by the browser before the API ever saw it.
+function num(label, value, path, help = '', step = '') {
   return `<label class="set-f">
     <span>${esc(label)}</span>
-    <input class="input" type="number" data-path="${path}" value="${esc(String(value ?? ''))}">
+    <input class="input" type="number" data-path="${path}" value="${esc(String(value ?? ''))}"
+           ${step ? `step="${esc(step)}" min="0"` : ''}>
     ${help ? `<em class="muted">${esc(help)}</em>` : ''}
   </label>`;
 }
