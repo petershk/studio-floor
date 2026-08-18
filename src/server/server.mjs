@@ -312,7 +312,9 @@ function writeConfigFromUi(store, runner, body) {
     return { ok: false, error: e.message };
   }
 
-  const { config: next, errors } = applyConfigPatch(raw, body || {}, { knownProviders: providers() });
+  const { config: next, errors, warnings } = applyConfigPatch(
+    raw, body || {}, { knownProviders: providers() },
+  );
   if (errors.length) return { ok: false, errors };
 
   const before = normaliseConfig(raw);
@@ -349,7 +351,10 @@ function writeConfigFromUi(store, runner, body) {
     restartRequired: restart,
   });
 
-  return { ok: true, applied, restartRequired: restart, config: readConfigForUi().config };
+  return {
+    ok: true, applied, restartRequired: restart, warnings,
+    config: readConfigForUi().config,
+  };
 }
 
 function describeConfigChange(before, after, applied, restart) {

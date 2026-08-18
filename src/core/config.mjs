@@ -309,6 +309,7 @@ export function readRawConfig(file = CONFIG_FILE) {
  */
 export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}) {
   const errors = [];
+  const warnings = [];
   const next = JSON.parse(JSON.stringify(raw || {}));
 
   if (patch.project && typeof patch.project === 'object') {
@@ -416,12 +417,31 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
       // normaliseConfig cannot do it: adapters are a separate registry that this
       // module deliberately does not import, so the caller supplies the list.
       if (knownProviders) {
+        // Distinguish breakage this save would introduce from breakage that was
+        // already sitting in the file.
+        //
+        // Blocking on both makes the panel unusable in a state you can actually
+        // reach: `--only` skips an agent whose adapter is missing, so the studio
+        // starts, and then every save — even one that touches nothing but
+        // maxTurns — was refused because of an agent the human never edited.
+        // Holding unrelated edits hostage to pre-existing breakage is the
+        // opposite of what a settings form is for.
+        const before = new Map(
+          (Array.isArray(raw?.agents) ? raw.agents : [])
+            .filter((a) => a && typeof a === 'object')
+            .map((a) => [a.id, a.provider || a.id]),
+        );
         for (const a of resolved.agents) {
-          if (!knownProviders.includes(a.provider)) {
-            errors.push(
-              `agent "${a.id}": there is no adapter for provider "${a.provider}" `
-              + `(this studio has ${knownProviders.join(', ')}). The studio would fail to start.`,
+          if (knownProviders.includes(a.provider)) continue;
+          const where = `agent "${a.id}": there is no adapter for provider "${a.provider}" `
+            + `(this studio has ${knownProviders.join(', ')})`;
+          if (before.get(a.id) === a.provider) {
+            warnings.push(
+              `${where}. It was already in the config and this save left it alone, but the `
+              + 'studio will refuse to start until you add the adapter or change the provider.',
             );
+          } else {
+            errors.push(`${where}. The studio would fail to start.`);
           }
         }
       }
@@ -430,7 +450,7 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
     }
   }
 
-  return { config: next, errors };
+  return { config: next, errors, warnings };
 }
 
 /** Which of these changes need a restart before they mean anything. */

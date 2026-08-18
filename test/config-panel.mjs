@@ -99,6 +99,54 @@ for (const field of AGENT_PROTECTED_OPTIONS) {
   ok('no provider list means no provider check, not a crash', errors.length === 0);
 }
 
+// Breakage already in the file must not hold unrelated edits hostage.
+//
+// `--only` skips an agent whose adapter is missing, so the studio starts with a
+// broken entry in the roster — and every save, including one that touched
+// nothing but maxTurns, was refused because of an agent the human never edited.
+// The panel became unusable until the file was hand-edited, which is the
+// opposite of what it is for.
+{
+  const broken = {
+    ...base,
+    agents: [...base.agents, { id: 'gem', provider: 'gemini', persona: 'researcher' }],
+  };
+  const { errors, warnings } = applyConfigPatch(broken, { runner: { maxTurns: 99 } }, opts);
+  ok('an unrelated edit survives a pre-existing bad provider', errors.length === 0, errors.join('; '));
+  ok('and it is reported as a warning instead', warnings.some((w) => w.includes('gemini')), warnings.join('; '));
+  ok('the warning says the studio will not start', warnings.some((w) => /refuse to start/.test(w)));
+}
+{
+  // Introducing one is still an error, and changing an existing agent onto a
+  // missing provider counts as introducing it.
+  const broken = {
+    ...base,
+    agents: [...base.agents, { id: 'gem', provider: 'gemini', persona: 'researcher' }],
+  };
+  const { errors } = applyConfigPatch(broken, {
+    agents: [{ id: 'architect', provider: 'llama', persona: 'architect' }],
+  }, opts);
+  ok('introducing a bad provider is still refused', errors.some((e) => e.includes('llama')), errors.join('; '));
+}
+{
+  const { errors } = applyConfigPatch(base, {
+    agents: [...base.agents.map((a) => ({ id: a.id, provider: a.provider, persona: a.persona })),
+      { id: 'gem', provider: 'gemini' }],
+  }, opts);
+  ok('adding a new agent on a missing provider is refused', errors.some((e) => e.includes('gemini')));
+}
+
+// The `adapters` key must survive loading, or custom providers never register.
+{
+  const { normaliseConfig: nc } = await import('../src/core/config.mjs');
+  const cfg = nc({ adapters: ['./a.mjs', 'pkg'], agents: [{ id: 'a', provider: 'claude' }] });
+  ok('adapters survive normalisation', JSON.stringify(cfg.adapters) === '["./a.mjs","pkg"]',
+    JSON.stringify(cfg.adapters));
+  let threw = false;
+  try { nc({ adapters: 'nope', agents: [{ id: 'a', provider: 'claude' }] }); } catch { threw = true; }
+  ok('a non-list adapters key is rejected', threw);
+}
+
 // ------------------------------------------------------------------ validation
 
 const rejects = [

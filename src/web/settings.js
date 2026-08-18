@@ -149,6 +149,10 @@ function render() {
 function agentCard(a, i, s) {
   const prot = data.protectedFields?.[a.id] || [];
   const isCustomPersona = a.persona && !s.personas.includes(a.persona);
+  // Without an option of its own, a provider the registry does not know would
+  // render as whatever sits first in the list — the panel would quietly show
+  // this agent running on codex. Give it a real, selected, labelled option.
+  const unknownProvider = a.provider && !data.providers.includes(a.provider);
   return `
   <div class="set-agent" data-i="${i}">
     <div class="set-agent-head">
@@ -158,6 +162,7 @@ function agentCard(a, i, s) {
       <select class="input" data-path="agents.${i}.provider" aria-label="provider">
         ${data.providers.map((p) =>
     `<option value="${esc(p)}"${p === a.provider ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+        ${unknownProvider ? `<option value="${esc(a.provider)}" selected>${esc(a.provider)} (no adapter)</option>` : ''}
       </select>
       <div class="set-agent-move">
         <button class="btn ghost" data-move="${i}:-1" type="button" title="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
@@ -205,6 +210,10 @@ function agentCard(a, i, s) {
       </label>
     </div>
 
+    ${unknownProvider ? `<div class="set-warn">
+      No adapter is loaded for <b>${esc(a.provider)}</b>, so this agent cannot run and the
+      studio will refuse to start while it is in the roster. Add the adapter to
+      <code>adapters</code> in the config file, or pick a provider above.</div>` : ''}
     ${a.sandbox === 'full' ? `<div class="set-warn">
       <b>full</b> bypasses Codex's approvals and sandbox entirely. This agent can run
       any command on this machine.</div>` : ''}
@@ -354,14 +363,18 @@ async function save() {
   }
 
   dirty = false;
+  const warned = r.warnings?.length
+    ? `<div style="margin-top:6px"><b>Still needs attention:</b><ul>${
+      r.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`
+    : '';
   const live = r.applied?.length
     ? `Applied now: ${r.applied.map((x) => `<code>${esc(x)}</code>`).join(' ')}.`
     : '';
   const later = r.restartRequired?.length
     ? ` <b>Restart the studio</b> for the rest — ${esc(r.restartRequired.join('; '))}.`
     : '';
-  setNotice(r.restartRequired?.length ? 'warn' : 'ok',
-    `Saved to the config file. ${live}${later}` || 'Saved.');
+  setNotice(r.restartRequired?.length || r.warnings?.length ? 'warn' : 'ok',
+    `Saved to the config file. ${live}${later}${warned}`);
 
   await load();
 }

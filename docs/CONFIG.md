@@ -21,6 +21,17 @@ runner's agent map — so adding or removing an agent needs a restart. The panel
 says which happened, per save, rather than implying everything is live. If the
 file and the running studio have diverged it says that too.
 
+**The provider menu lists whatever adapters are loaded**, not a fixed three. Add
+an adapter to the `adapters` list in the file and restart, and it appears in the
+dropdown for every agent. What the panel cannot do is *register* a new provider —
+that means importing a JavaScript file, which is the next paragraph.
+
+If the roster names a provider with no adapter, the panel shows it as
+`name (no adapter)` and warns on the card rather than silently displaying the
+first provider in the list. Saving an unrelated field still works and repeats the
+warning; introducing a provider with no adapter is refused outright, because the
+studio would then fail to start.
+
 **It cannot change which program runs.** Per-agent `command`, `extraArgs` and
 `env`, and the top-level `adapters` list, are refused by the API and not
 rendered. They decide what executable is spawned, with what arguments, in what
