@@ -98,8 +98,49 @@ export const EXIT_SWITCH = 75;
 export const STUDIO_CMD = process.env.STUDIO_CMD
   || `node "${path.join(SRC_DIR, 'cli', 'studio.mjs')}"`;
 
-export const PORT = Number(process.env.STUDIO_PORT || 4173);
-export const HOST = process.env.STUDIO_HOST || '127.0.0.1';
+/**
+ * The `server` block, read straight from the config file.
+ *
+ * paths.mjs cannot import config.mjs — config.mjs imports this module for
+ * CONFIG_FILE, and the cycle would leave one of them half-initialised. So the
+ * two keys the address depends on are parsed here directly.
+ *
+ * They were previously not read at all: `server.port` and `server.host` were
+ * documented, rendered in the settings panel, and silently ignored, because
+ * PORT was env-or-default and nothing ever consulted the file. A config asking
+ * for port 5099 bound 4173 and said so in the banner without anyone noticing.
+ *
+ * Deliberately forgiving. A malformed config must not take down the module every
+ * other module imports; config.mjs reports that properly a moment later, with a
+ * message that names the file.
+ */
+function serverFromConfig() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    const srv = raw && typeof raw.server === 'object' ? raw.server : {};
+    const port = Number(srv.port);
+    return {
+      port: Number.isInteger(port) && port >= 0 && port <= 65535 ? port : null,
+      host: typeof srv.host === 'string' && srv.host.trim() ? srv.host.trim() : null,
+    };
+  } catch {
+    return { port: null, host: null };
+  }
+}
+
+const fromConfig = serverFromConfig();
+
+// Environment wins over the file, so a container or a one-off run can override
+// a committed config without editing it.
+//
+// `??` alone is wrong here: an exported-but-empty STUDIO_PORT is common in
+// shells, .env files and CI, and it is not null, so it would win and resolve to
+// Number('') === 0 — a random port, silently, instead of the default. An empty
+// value means unset. A literal "0" does not: the test harness relies on it to
+// ask the OS for a free port.
+const envPort = String(process.env.STUDIO_PORT ?? '').trim();
+export const PORT = Number(envPort !== '' ? envPort : (fromConfig.port ?? 4173));
+export const HOST = process.env.STUDIO_HOST?.trim() || fromConfig.host || '127.0.0.1';
 export const BASE_URL = process.env.STUDIO_URL
   || `http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}`;
 

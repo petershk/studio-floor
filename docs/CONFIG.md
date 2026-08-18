@@ -161,6 +161,11 @@ the roster is resolved. See [ADAPTERS.md](ADAPTERS.md).
 | `host` | default `127.0.0.1`. Set `0.0.0.0` to expose it. |
 | `token` | shared secret required by every `/api/*` route. Null means an open local server. |
 
+`STUDIO_PORT` and `STUDIO_HOST` override these, so a container or a one-off run
+can move the address without editing a committed config. An environment variable
+that is set but empty counts as unset; `STUDIO_PORT=0` does not, and asks the OS
+for a free port.
+
 ## Environment variables
 
 Environment wins over the config file, which is what makes containerising this

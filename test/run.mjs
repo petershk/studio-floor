@@ -35,6 +35,7 @@ const STUDIO_TESTS = [
   'config-panel.mjs',
   'projects.mjs',
   'update.mjs',
+  'address.mjs',
   'readme-examples.mjs',
   'roster.mjs',
   'cli.mjs',
