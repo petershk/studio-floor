@@ -76,6 +76,8 @@ export function renderUsage(s) {
       <div class="u-stat"><span class="u-n">${money(billed ? totalCost / billed : 0)}</span><span class="u-l">estimated average per turn</span></div>
     </div>
 
+    ${budgetBlock(state.budgets)}
+
     ${unpriced.length ? `<div class="set-notice warn">
       <b>${unpriced.map(([id]) => esc(id)).join(', ')}</b>
       ${unpriced.length === 1 ? 'does' : 'do'} not report a cost, and no rate is configured, so
@@ -112,6 +114,107 @@ export function renderUsage(s) {
         <tbody>${turnRows}</tbody>
       </table></div>
     </section>`;
+
+  // innerHTML replaced the node, so the control is wired after every render
+  // rather than once. Going through /api/human/control rather than
+  // /api/runner/stop records it as a human intervention, so the log says who
+  // stopped the team and the agents are told when they come back.
+  const stop = $('usage-stop-all');
+  if (stop) {
+    stop.addEventListener('click', async () => {
+      stop.disabled = true;
+      stop.textContent = 'Stopping…';
+      try {
+        await fetch('/api/human/control', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'stop', text: 'stopped from the usage panel', via: 'browser' }),
+        });
+      } finally {
+        stop.disabled = false;
+        stop.textContent = 'Stop the team';
+      }
+    });
+  }
+}
+
+/**
+ * How much of each budget is left, and one control that ends the run.
+ *
+ * Deliberately a countdown rather than a total. "You have spent $4.10" invites
+ * arithmetic; "$5.90 left of $10" is the thing a human actually wanted to know
+ * when they set the cap, and it is the number that tells them whether to walk
+ * away from the machine.
+ *
+ * A budget that is off says so plainly. Rendering "no limit" as an empty box or
+ * a zero would read as "nothing left", which is the opposite of true.
+ */
+function budgetBlock(b) {
+  if (!b) return '';
+  const rows = [];
+
+  if (b.time?.limit) {
+    rows.push(bar('Time', duration(b.time.remainingMs), `of ${duration(b.time.limit)}`,
+      pct(b.time.remainingMs, b.time.limit)));
+  }
+  if (b.spend?.limit) {
+    rows.push(bar('Spend', money(b.spend.remainingUsd), `of ${money(b.spend.limit)} — estimated`,
+      pct(b.spend.remainingUsd, b.spend.limit)));
+  }
+  if (b.turns?.limit) {
+    const used = Math.max(0, ...Object.values(b.turns.perAgent || {}));
+    rows.push(bar('Turns', String(Math.max(0, b.turns.limit - used)),
+      `of ${b.turns.limit} — per agent, the busiest shown`, pct(b.turns.limit - used, b.turns.limit)));
+  }
+
+  const unpriced = b.spend?.unpriced || [];
+
+  return `<section class="set-block">
+    <h3>Budgets</h3>
+    ${rows.length
+    ? `<div class="u-budgets">${rows.join('')}</div>`
+    : `<p class="muted">No time or spend limit is set, so this team runs until you stop it
+       or its turn budget runs out. Set <code>maxWallMs</code> or <code>maxSpendUsd</code>
+       in the runner settings before leaving it unattended.</p>`}
+
+    ${b.hit ? `<div class="set-notice warn">
+      The <b>${esc(b.hit)}</b> budget was reached and the team was stopped. Raise it in
+      settings and start the agents again to continue.
+    </div>` : ''}
+
+    ${unpriced.length ? `<div class="set-notice warn">
+      <b>${unpriced.map(esc).join(', ')}</b> ${unpriced.length === 1 ? 'reports' : 'report'} no cost
+      and ${unpriced.length === 1 ? 'has' : 'have'} no configured rate, so
+      ${unpriced.length === 1 ? 'its' : 'their'} spend is <b>not counted</b> against the cap.
+      The figure above is a floor, not a bill.
+    </div>` : ''}
+
+    <div class="set-actions">
+      <button class="btn danger" id="usage-stop-all" type="button">Stop the team</button>
+    </div>
+    <p class="muted">Stopping is safe at any moment: an interrupted turn leaves its inbox
+    unacknowledged, so nothing the team was told goes missing. The event log is untouched.</p>
+  </section>`;
+}
+
+function bar(label, big, sub, filled) {
+  return `<div class="u-budget">
+    <div class="u-b-head"><span class="u-b-label">${esc(label)}</span>
+      <span class="u-n">${esc(big)}</span> <span class="u-l">left ${esc(sub)}</span></div>
+    <div class="u-b-track"><div class="u-b-fill${filled <= 15 ? ' low' : ''}" style="width:${filled}%"></div></div>
+  </div>`;
+}
+
+const pct = (left, limit) => (limit > 0 ? Math.max(0, Math.min(100, (left / limit) * 100)) : 0);
+
+function duration(ms) {
+  if (!Number.isFinite(ms)) return '—';
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m`;
+  return `${s}s`;
 }
 
 /**

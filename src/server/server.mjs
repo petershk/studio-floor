@@ -1,13 +1,14 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
 import { AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG } from '../core/roster.mjs';
 import { providers } from '../agents/adapters/index.mjs';
 import {
   readRawConfig, applyConfigPatch, saveRawConfig, restartRequiredFor, normaliseConfig,
-  configSchema, PERSONAS, AGENT_PROTECTED_OPTIONS, RUNNER_EDITABLE,
+  configSchema, PERSONAS, AGENT_PROTECTED_OPTIONS, AGENT_SECRET_OPTIONS, RUNNER_EDITABLE,
 } from '../core/config.mjs';
 import {
   inspect, problemsWith, recentProjects, requestSwitch, forgetProject,
@@ -118,6 +119,10 @@ export function createHttpServer(store, runner) {
           // The usage view forecasts against the turn budget, so it needs to
           // know what the budget is.
           runner: { maxTurns: RUNNER_CONFIG.maxTurns },
+          // Live countdowns, not just limits: what a human wants to know about
+          // a studio they left running is how much of it is left. Null when the
+          // server runs without a runner, which the tests do.
+          budgets: runner?.budgets?.() ?? null,
         });
       }
 
@@ -145,7 +150,7 @@ export function createHttpServer(store, runner) {
       // pane up without a restart.
       if (p === '/api/preview') return json(res, previewStatus());
 
-      if (isPreviewPath(p)) return servePreview(p, url, res);
+      if (isPreviewPath(p)) return servePreview(p, url, req, res);
 
       if (p === '/api/config' && req.method !== 'POST') return json(res, readConfigForUi());
 
@@ -425,7 +430,7 @@ function readConfigForUi() {
   const protectedBy = {};
   for (const a of Array.isArray(raw.agents) ? raw.agents : []) {
     if (!a || typeof a !== 'object') continue;
-    const found = AGENT_PROTECTED_OPTIONS.filter(
+    const found = [...AGENT_PROTECTED_OPTIONS, ...AGENT_SECRET_OPTIONS].filter(
       (k) => a[k] !== undefined || a.options?.[k] !== undefined,
     );
     if (found.length) protectedBy[a.id] = found;
@@ -1269,7 +1274,7 @@ function previewStatus() {
  * Nothing here is cached. The pane reloads the frame when the version changes,
  * and a cached bundle would make that reload a lie.
  */
-function servePreview(p, url, res) {
+function servePreview(p, url, req, res) {
   const info = resolvePreview(previewSetting(), PROJECT_ROOT);
   if (!info.found) {
     return html(res, 404, previewPage('Nothing to preview yet', esc(info.reason)));
@@ -1297,11 +1302,65 @@ function servePreview(p, url, res) {
     }
     return html(res, 404, previewPage('Not in the preview directory', `<code>${esc(p)}</code> is not a file under <code>${esc(info.root)}</code>.`));
   }
-  res.writeHead(200, {
-    'Content-Type': PREVIEW_MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+  const type = PREVIEW_MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
+  const headers = {
+    'Content-Type': type,
     'Cache-Control': 'no-store, must-revalidate',
-  });
-  fs.createReadStream(file).pipe(res);
+    // Which bytes come back now depends on a request header, so any cache in
+    // between has to key on it. no-store makes that theoretical today; sending
+    // it costs nothing and stops the day someone relaxes the caching from
+    // handing a gzip body to a client that asked for text.
+    'Vary': 'Accept-Encoding',
+  };
+  const packed = wantsGzip(req) && isCompressible(type) && sizeOf(file) >= COMPRESS_MIN;
+  if (packed) headers['Content-Encoding'] = 'gzip';
+  res.writeHead(200, headers);
+
+  const source = fs.createReadStream(file);
+  if (!packed) {
+    source.on('error', () => res.destroy());
+    return source.pipe(res);
+  }
+  // A file that vanishes mid-read, or a client that leaves, must kill both
+  // halves of the pipe. Without this the gzip stream is left holding a socket.
+  const gzip = zlib.createGzip();
+  source.on('error', () => { gzip.destroy(); res.destroy(); });
+  gzip.on('error', () => res.destroy());
+  source.pipe(gzip).pipe(res);
+}
+
+/**
+ * The human's one written constraint on the game is "mobile friendly and in a
+ * browser", and this preview is the only thing that has ever served it to one.
+ * It was sending 213,927 raw bytes on every load — 195,262 of them a single
+ * JSON catalog — while the browser asked for gzip and was ignored.
+ *
+ * gzip, not brotli, and the measurement is the argument. On that catalog gzip
+ * returns 47,814 bytes in 9.4ms; brotli returns 40,739 in 194.6ms. Nothing
+ * here is cached, so that is paid on every reload of a pane the human leaves
+ * open. 7 KB is not worth 185ms of the studio's CPU per refresh.
+ */
+const COMPRESS_MIN = 1024;
+
+/** Already-compressed bytes — png, woff2, webp — only get bigger and slower. */
+function isCompressible(type) {
+  return type.startsWith('text/') || /(json|javascript|xml)/.test(type);
+}
+
+function sizeOf(file) {
+  try { return fs.statSync(file).size; } catch { return 0; }
+}
+
+function wantsGzip(req) {
+  for (const part of String(req?.headers?.['accept-encoding'] || '').split(',')) {
+    const [name, ...params] = part.trim().split(';').map((s) => s.trim());
+    if (name.toLowerCase() !== 'gzip' && name !== '*') continue;
+    // `gzip;q=0` is a client REFUSING gzip. Reading it as a request for gzip
+    // is the whole point of parsing this header rather than searching it.
+    if (params.some((q) => /^q=0([.]0+)?$/i.test(q))) continue;
+    return true;
+  }
+  return false;
 }
 
 function isPreviewPath(p) {

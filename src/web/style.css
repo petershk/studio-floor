@@ -579,3 +579,18 @@ main {
   background: var(--bg3); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 8px 10px; margin: 6px 0; overflow-x: auto;
 }
+
+/* Budget countdowns. A bar rather than a number alone: "how much is left" is a
+   proportion question, and the eye answers it faster than arithmetic does. */
+.u-budgets { display: flex; flex-direction: column; gap: 14px; margin: 6px 0 14px; }
+.u-budget { display: flex; flex-direction: column; gap: 6px; }
+.u-b-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.u-b-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); min-width: 54px;
+}
+.u-b-head .u-n { font-size: 20px; }
+.u-b-track { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .07); overflow: hidden; }
+.u-b-fill { height: 100%; border-radius: 3px; background: #7bd88f; transition: width .3s ease; }
+/* Under 15% left. The colour is the warning; the number beside it is the detail. */
+.u-b-fill.low { background: #e0a06a; }

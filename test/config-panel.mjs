@@ -19,7 +19,7 @@
 import assert from 'node:assert/strict';
 import {
   applyConfigPatch, restartRequiredFor, configSchema,
-  AGENT_PROTECTED_OPTIONS, RUNNER_EDITABLE,
+  AGENT_PROTECTED_OPTIONS, AGENT_SECRET_OPTIONS, RUNNER_EDITABLE,
 } from '../src/core/config.mjs';
 
 const PROVIDERS = ['codex', 'claude', 'grok'];
@@ -248,9 +248,44 @@ for (const [name, patch, re] of rejects) {
   ok('the schema offers the built-in personas', s.personas.includes('adversary'));
   ok('the schema lists the sandboxes', s.sandboxes.includes('read-only'));
   ok('the schema names the protected fields', AGENT_PROTECTED_OPTIONS.every((f) => s.protectedFields.includes(f)));
+  ok('the schema names the secret fields too', AGENT_SECRET_OPTIONS.every((f) => s.protectedFields.includes(f)));
   ok('every editable runner field is in the schema', RUNNER_EDITABLE.every((f) => s.runnerFields.includes(f)));
   ok('no protected field is advertised as editable',
     !s.agentFields.some((f) => AGENT_PROTECTED_OPTIONS.includes(f)));
+  ok('no secret field is advertised as editable',
+    !s.agentFields.some((f) => AGENT_SECRET_OPTIONS.includes(f)));
+}
+
+// ------------------------------------------------------------------ secrets
+
+// A literal key over HTTP would be written into studio_floor/config.json, which
+// the layout treats as the roster and worth committing. apiKeyEnv does the same
+// job by reference, so refusing this costs nothing.
+for (const field of AGENT_SECRET_OPTIONS) {
+  const { errors, config } = applyConfigPatch(base, {
+    agents: [{ id: 'alpha', provider: 'claude', [field]: 'sk-live-not-a-real-key' }],
+  }, opts);
+  ok(`"${field}" is refused over HTTP`, errors.some((e) => e.includes(field)), errors.join('; '));
+  ok(`and the refusal points at apiKeyEnv`, errors.some((e) => e.includes('apiKeyEnv')), errors.join('; '));
+  // applyConfigPatch still returns a candidate config; callers gate on errors
+  // (server.mjs:501). Assert the refused secret never reached it anyway, so a
+  // caller that forgot to check could not leak the key into the file.
+  ok(`and the key is absent from the candidate config`,
+    config?.agents?.every((a) => a[field] === undefined), JSON.stringify(config?.agents));
+}
+
+// A key already in the file by hand keeps working: the panel cannot set it, but
+// saving an unrelated change must not silently delete it.
+{
+  const withKey = {
+    ...base,
+    agents: [{ ...base.agents[0], apiKey: 'sk-written-by-hand' }, ...base.agents.slice(1)],
+  };
+  const { errors, config } = applyConfigPatch(withKey, {
+    agents: withKey.agents.map((a) => ({ id: a.id, provider: a.provider, persona: a.persona })),
+  }, opts);
+  ok('a hand-written apiKey survives a panel save', config?.agents?.[0]?.apiKey === 'sk-written-by-hand',
+    JSON.stringify({ errors, agent: config?.agents?.[0] }));
 }
 
 console.log(process.exitCode ? '\nconfig panel checks FAILED\n' : `\nall ${n} config panel checks passed\n`);

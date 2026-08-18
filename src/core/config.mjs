@@ -16,6 +16,24 @@ import { CONFIG_FILE, PROJECT_ROOT } from './paths.mjs';
 export const DEFAULT_RUNNER = {
   /** Per-agent turn budget. The agent stops when it is reached. */
   maxTurns: 200,
+  /**
+   * Team-wide budgets. Zero means no limit, which is the default because a
+   * studio someone is watching does not need one.
+   *
+   * They exist for the studio nobody is watching. `maxTurns` bounds how much
+   * work an agent does, but not how long it takes or what it costs, and those
+   * are the two questions a human leaving one running overnight is actually
+   * asking. Both are checked before a turn starts and stop the whole team, not
+   * one agent: a budget is a statement about the run, not about a member of it.
+   */
+  maxWallMs: 0,
+  /**
+   * Dollars. Read from the usage ledger, which prefers the provider's own
+   * figure and falls back to the rates in `prices`. A provider that reports
+   * neither contributes nothing, so this cap can undercount — the stop reason
+   * and the panel both say so rather than implying a number they cannot know.
+   */
+  maxSpendUsd: 0,
   /** A turn is killed if it runs longer than this. */
   turnTimeoutMs: 20 * 60 * 1000,
   /** Pause between an agent's turns, so it cannot spin. */
@@ -335,11 +353,26 @@ export const AGENT_EDITABLE_OPTIONS = [
   // Unlike `env` these are safe for the settings panel: they are data an
   // adapter turns into the two variables its CLI reads, not arbitrary
   // environment. `NODE_OPTIONS` changes what code runs; a base URL does not.
-  'baseUrl', 'apiKeyEnv', 'apiKey',
+  'baseUrl', 'apiKeyEnv',
 ];
 export const AGENT_PROTECTED_OPTIONS = ['command', 'extraArgs', 'env'];
+
+/**
+ * Refused for a different reason than the list above.
+ *
+ * `apiKey` does not decide what program runs — it is a secret, and accepting it
+ * here writes the literal key into `studio_floor/config.json`, a file the layout
+ * treats as the roster and worth committing. Committing a key is how keys leak.
+ *
+ * `apiKeyEnv` does the same job by naming an environment variable, so nothing
+ * is lost by refusing this one, and the settings panel never sends it anyway.
+ * A key already written into the file by hand keeps working and is carried
+ * across saves untouched — this refuses a new one arriving over HTTP.
+ */
+export const AGENT_SECRET_OPTIONS = ['apiKey'];
 export const RUNNER_EDITABLE = [
-  'maxTurns', 'turnTimeoutMs', 'cooldownMs', 'staggerMs', 'commandLineBudget', 'idleBackoffMs',
+  'maxTurns', 'maxWallMs', 'maxSpendUsd',
+  'turnTimeoutMs', 'cooldownMs', 'staggerMs', 'commandLineBudget', 'idleBackoffMs',
 ];
 export const PROJECT_EDITABLE = ['name', 'goal', 'brief'];
 
@@ -357,6 +390,8 @@ export const LIVE_FIELDS = ['runner', 'project.name', 'project.goal'];
 /** Numeric bounds, so a typo cannot wedge the studio into a spin or a stall. */
 const NUMERIC_BOUNDS = {
   maxTurns: [0, 100_000],
+  maxWallMs: [0, 30 * 24 * 60 * 60 * 1000],
+  maxSpendUsd: [0, 100_000],
   turnTimeoutMs: [10_000, 24 * 60 * 60 * 1000],
   cooldownMs: [0, 10 * 60 * 1000],
   staggerMs: [0, 10 * 60 * 1000],
@@ -453,7 +488,7 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
       next.agents = patch.agents.map((incoming, i) => {
         const kept = previous.get(incoming?.id) || {};
         const agent = {};
-        for (const k of AGENT_PROTECTED_OPTIONS) {
+        for (const k of [...AGENT_PROTECTED_OPTIONS, ...AGENT_SECRET_OPTIONS]) {
           if (kept[k] !== undefined) agent[k] = kept[k];
         }
         if (kept.options) agent.options = kept.options;
@@ -490,6 +525,11 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
             errors.push(
               `agent #${i + 1}: "${k}" cannot be set from the settings panel — `
               + 'it decides what program runs, so it is editable only in the config file',
+            );
+          } else if (AGENT_SECRET_OPTIONS.includes(k)) {
+            errors.push(
+              `agent #${i + 1}: "${k}" cannot be set over HTTP — it would write the literal key `
+              + 'into the config file. Use "apiKeyEnv" to name an environment variable instead',
             );
           } else {
             errors.push(`agent #${i + 1}: "${k}" is not a known field`);
@@ -578,7 +618,7 @@ export function configSchema() {
     sandboxes: SANDBOXES,
     permissionModes: PERMISSION_MODES,
     agentFields: [...AGENT_EDITABLE, ...AGENT_EDITABLE_OPTIONS],
-    protectedFields: AGENT_PROTECTED_OPTIONS,
+    protectedFields: [...AGENT_PROTECTED_OPTIONS, ...AGENT_SECRET_OPTIONS],
     runnerFields: RUNNER_EDITABLE,
     projectFields: PROJECT_EDITABLE,
     liveFields: LIVE_FIELDS,

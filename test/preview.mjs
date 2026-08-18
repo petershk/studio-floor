@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import zlib from 'node:zlib';
 import { startStudioServer, studioUrl } from './harness.mjs';
 
 let failures = 0;
@@ -186,6 +187,20 @@ put(served, path.join('web', 'index.html'), '<!doctype html><title>MARKER-9f13</
 put(served, path.join('later', 'index.html'), '<!doctype html><title>MARKER-SECOND</title>');
 fs.writeFileSync(path.join(served, 'secret.txt'), 'SECRET');
 
+// Encoding fixtures. The real one is the game's deal catalog: 195 KB of JSON
+// that the preview was shipping raw to a phone on every single load. These
+// stand in for the three cases that must come out differently — big and
+// compressible, already compressed, and too small to be worth the CPU.
+const catalog = JSON.stringify(
+  Array.from({ length: 400 }, (_, i) => ({ id: i, p: i / 4000, piles: 'AH KS 7D 3C '.repeat(4).trim() })),
+);
+put(served, path.join('web', 'catalog.json'), catalog);
+put(served, path.join('web', 'tiny.txt'), 'small enough that gzip would be a waste');
+// Deterministic bytes that do not compress, standing in for a real png.
+const noise = Buffer.alloc(4096);
+for (let i = 0, x = 12345; i < noise.length; i++) { x = (x * 1103515245 + 12345) & 0x7fffffff; noise[i] = x >> 16; }
+fs.writeFileSync(path.join(served, 'web', 'art.png'), noise);
+
 // The server serves what the config names and nothing else, so the config is
 // part of the fixture now rather than something the server works out.
 const cfgFile = path.join(served, 'studio.config.json');
@@ -237,6 +252,62 @@ try {
   });
   check('http: a raw ../ escape is refused and leaks nothing',
     raw.status === 404 && !raw.text.includes('SECRET'), `${raw.status} ${raw.text.slice(0, 80)}`);
+
+  // ------------------------------------------------------- what goes on the wire
+  //
+  // The human's only written constraint on the game is that it work on a phone
+  // in a browser, and the preview is the only thing that has ever served it to
+  // one. It ignored Accept-Encoding entirely: 213,927 raw bytes per load, of
+  // which 195,262 were the catalog, with no-store so it happened every time.
+  //
+  // These check the BYTES ON THE SOCKET, not what fetch() hands back, because
+  // fetch transparently gunzips and would report success either way.
+  const wire = (p, headers = {}) => new Promise((resolve, reject) => {
+    const req = http.request({ port: server.port, host: '127.0.0.1', path: p, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  const onDisk = fs.readFileSync(path.join(served, 'web', 'catalog.json'));
+
+  const packed = await wire('/preview/catalog.json', { 'Accept-Encoding': 'gzip, deflate, br' });
+  check('http: a browser that asks for gzip is not ignored',
+    packed.headers['content-encoding'] === 'gzip', String(packed.headers['content-encoding']));
+  check('http: and it is actually smaller on the socket',
+    packed.body.length < onDisk.length / 2, `${packed.body.length} of ${onDisk.length}`);
+  // Guarded: if the server stops compressing, gunzipSync THROWS, and a test
+  // that dies instead of failing takes the other checks down with it.
+  let unpacked = null;
+  try { unpacked = zlib.gunzipSync(packed.body); } catch (err) { unpacked = err; }
+  check('http: and it decompresses to the file, byte for byte — a smaller lie is still a lie',
+    Buffer.isBuffer(unpacked) && unpacked.equals(onDisk),
+    Buffer.isBuffer(unpacked) ? `${unpacked.length} bytes` : String(unpacked.message || unpacked));
+  check('http: the response says the body depends on the request header',
+    /accept-encoding/i.test(packed.headers.vary || ''), String(packed.headers.vary));
+
+  const plain = await wire('/preview/catalog.json');
+  check('http: a client that asks for nothing still gets the file itself',
+    !plain.headers['content-encoding'] && plain.body.equals(onDisk),
+    `${plain.headers['content-encoding']} ${plain.body.length}`);
+
+  // The case a header SEARCH gets wrong and a header PARSE gets right: the
+  // string contains "gzip" and the client is refusing it.
+  const refused = await wire('/preview/catalog.json', { 'Accept-Encoding': 'gzip;q=0, identity' });
+  check('http: gzip;q=0 is a refusal, not a request',
+    !refused.headers['content-encoding'] && refused.body.equals(onDisk),
+    String(refused.headers['content-encoding']));
+
+  const art = await wire('/preview/art.png', { 'Accept-Encoding': 'gzip' });
+  check('http: already-compressed bytes are left alone',
+    !art.headers['content-encoding'] && art.body.length === 4096,
+    `${art.headers['content-encoding']} ${art.body.length}`);
+
+  const tiny = await wire('/preview/tiny.txt', { 'Accept-Encoding': 'gzip' });
+  check('http: a file too small to be worth the CPU is left alone',
+    !tiny.headers['content-encoding'], String(tiny.headers['content-encoding']));
 
   const before = (await server.get('/api/preview')).version;
   fs.writeFileSync(path.join(served, 'web', 'later.js'), 'console.log("added while the human watched")');

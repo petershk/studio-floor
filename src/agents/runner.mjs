@@ -41,6 +41,10 @@ export class Runner {
     this.store = store;
     this.config = config;
     this.agents = new Map();
+    /** When the run's first turn began. The wall-clock budget counts from here. */
+    this.startedAt = null;
+    /** Set once a team budget ends the run, so only one agent calls stopAll. */
+    this.budgetHit = null;
     const roster = config.roster || AGENTS;
     for (const id of config.agents) {
       const record = roster.find((a) => a.id === id) || getAgent(id);
@@ -85,7 +89,7 @@ export class Runner {
         quietTurns: a.quietTurns,
       };
     }
-    return { agents: out, config: redact(this.config) };
+    return { agents: out, config: redact(this.config), budgets: this.budgets() };
   }
 
   /** Wake an agent so it takes a turn as soon as its current one finishes. */
@@ -180,15 +184,133 @@ export class Runner {
     }
   }
 
+  // ---------------------------------------------------------------- budgets
+
+  /**
+   * Which budget, if any, forbids another turn.
+   *
+   * Checked BEFORE a turn starts, never during one. Killing a turn in flight
+   * does not refund the tokens it already spent — it only throws away the work
+   * they bought, and leaves an unacknowledged inbox behind. Stopping one turn
+   * late costs one turn; stopping mid-turn costs one turn and the result.
+   *
+   * `maxTurns` is per agent and pre-dates the others. The two below are
+   * team-wide, because "how long" and "how much" are questions about the run.
+   */
+  #budgetExceeded(a) {
+    if (this.config.maxTurns && a.turn >= this.config.maxTurns) {
+      return {
+        budget: 'turns',
+        team: false,
+        reason: `turn budget of ${this.config.maxTurns} reached — restart from the studio to continue`,
+      };
+    }
+
+    const wall = Number(this.config.maxWallMs) || 0;
+    if (wall && this.startedAt && Date.now() - this.startedAt >= wall) {
+      return {
+        budget: 'time',
+        team: true,
+        reason: `time budget of ${fmtDuration(wall)} reached — the team ran for `
+          + `${fmtDuration(Date.now() - this.startedAt)}. Restart from the studio to continue`,
+      };
+    }
+
+    const cap = Number(this.config.maxSpendUsd) || 0;
+    if (cap) {
+      const s = this.spend();
+      if (s.total >= cap) {
+        return {
+          budget: 'spend',
+          team: true,
+          reason: `spend budget of $${cap.toFixed(2)} reached — $${s.total.toFixed(2)} ${s.qualifier}. `
+            + 'Restart from the studio to continue',
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * What the run has cost so far, and how much that figure can be trusted.
+   *
+   * The ledger prefers each provider's own number and falls back to the rates
+   * in `prices`. An agent that has neither contributes zero, so the total is a
+   * floor rather than a bill — `qualifier` says which, and every place that
+   * shows this number is expected to repeat it. A cap that quietly undercounts
+   * is worse than no cap, because it reads like a guarantee.
+   */
+  spend() {
+    const rows = Object.entries(this.store.usage?.snapshot()?.byAgent || {});
+    let total = 0;
+    let estimated = 0;
+    const unpriced = [];
+    for (const [id, t] of rows) {
+      total += t.costUsd || 0;
+      estimated += t.costEstimated || 0;
+      if (!t.reportsCost && !t.costEstimated && (t.input || t.output)) unpriced.push(id);
+    }
+    const notes = [];
+    if (estimated > 0) notes.push('partly estimated from your configured rates');
+    if (unpriced.length) {
+      notes.push(`${unpriced.join(', ')} report no cost and no rate is configured, so `
+        + `${unpriced.length === 1 ? 'its' : 'their'} spend is NOT counted`);
+    }
+    return {
+      total,
+      estimated,
+      unpriced,
+      qualifier: notes.length ? `spent (${notes.join('; ')})` : 'spent',
+    };
+  }
+
+  /** What the human needs to see: how much of each budget is left. */
+  budgets() {
+    const wall = Number(this.config.maxWallMs) || 0;
+    const cap = Number(this.config.maxSpendUsd) || 0;
+    const s = this.spend();
+    return {
+      startedAt: this.startedAt,
+      hit: this.budgetHit?.budget || null,
+      turns: {
+        limit: this.config.maxTurns || 0,
+        perAgent: Object.fromEntries([...this.agents].map(([id, x]) => [id, x.turn])),
+      },
+      time: {
+        limit: wall,
+        elapsedMs: this.startedAt ? Date.now() - this.startedAt : 0,
+        // Null means "no limit set". Before the first turn the clock has not
+        // started, so the whole budget remains — reporting null there would
+        // draw an empty bar and read as "no time left", the opposite of true.
+        remainingMs: wall
+          ? Math.max(0, wall - (this.startedAt ? Date.now() - this.startedAt : 0))
+          : null,
+      },
+      spend: {
+        limit: cap,
+        total: s.total,
+        estimated: s.estimated,
+        unpriced: s.unpriced,
+        remainingUsd: cap ? Math.max(0, cap - s.total) : null,
+      },
+    };
+  }
+
   // ------------------------------------------------------------------- loop
 
   async #loop(a) {
     while (a.running && !a.stopping) {
-      if (this.config.maxTurns && a.turn >= this.config.maxTurns) {
+      const over = this.#budgetExceeded(a);
+      if (over) {
         a.running = false;
-        this.store.append('agent.stopped', a.id, {
-          reason: `turn budget of ${this.config.maxTurns} reached — restart from the studio to continue`,
-        });
+        this.store.append('agent.stopped', a.id, { reason: over.reason, budget: over.budget });
+        // A team budget is a statement about the run, so it ends the run. Only
+        // the first agent to notice does this; the rest are stopped by it and
+        // must not each call stopAll again.
+        if (over.team && !this.budgetHit) {
+          this.budgetHit = over;
+          await this.stopAll(over.reason);
+        }
         break;
       }
 
@@ -272,6 +394,9 @@ export class Runner {
     if (!adapter) throw new Error(`no adapter for provider ${a.record.provider} (agent ${a.id})`);
 
     a.turn++;
+    // The wall clock starts at the first turn of the run, not at boot: a studio
+    // sitting idle overnight has not spent any of its time budget.
+    if (this.startedAt === null) this.startedAt = Date.now();
     const startSeq = this.store.seq;
     const fresh = !a.sessionId;
     if (fresh && adapter.newSession) a.sessionId = adapter.newSession();
@@ -723,6 +848,16 @@ function redactArgs(args) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** "2h 15m" — for budget messages a human reads once and acts on. */
+function fmtDuration(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h) return `${h}h${m ? ` ${m}m` : ''}`;
+  if (m) return `${m}m`;
+  return `${s}s`;
 }
 
 export { STATE_DIR };
