@@ -38,9 +38,19 @@ function doctor(dir) {
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-doctor-'));
+// The agent points at the node binary running this test, not at a real provider
+// CLI. Every assertion here is about the BRIEF, but doctor's exit code and its
+// closing line are computed from brief problems and agent problems together —
+// so on a machine without grok installed the agent probe failed, the summary
+// changed, and two brief assertions went red for a reason that had nothing to
+// do with the brief. That is exactly what CI is: a clean runner with no vendor
+// CLI on it, which is why this suite passed locally and failed there on the
+// same tree digest. `command` is honoured per agent, and `node --version`
+// exits 0 everywhere, so the agent half is now a constant and the brief half is
+// what is actually under test.
 const cfg = {
   project: { name: 'Doctor Test', brief: 'PROJECT.md' },
-  agents: [{ id: 'only', provider: 'grok', persona: 'adversary' }],
+  agents: [{ id: 'only', provider: 'grok', persona: 'adversary', command: process.execPath }],
 };
 fs.mkdirSync(path.join(tmp, 'studio_floor'));
 fs.writeFileSync(path.join(tmp, 'studio_floor', 'config.json'), JSON.stringify(cfg, null, 2));
@@ -88,12 +98,17 @@ Describe what you want built, and why.
     /no written brief/i.test(scaffold.output),
     scaffold.output.slice(-200),
   );
-  if (/\bok\s+only → grok\b/.test(scaffold.output)) {
-    check(
-      'a template brief does not claim the agents cannot run',
-      !/those agents cannot run/i.test(scaffold.output),
-    );
-  }
+  // Unconditional now. This used to be skipped when the agent probe failed,
+  // which quietly turned the check off on precisely the machines it mattered on.
+  check(
+    'the agent probe is green, so brief assertions stand alone',
+    /\bok\s+only → grok\b/.test(scaffold.output),
+    scaffold.output.slice(-300),
+  );
+  check(
+    'a template brief does not claim the agents cannot run',
+    !/those agents cannot run/i.test(scaffold.output),
+  );
 }
 
 fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Doctor Test\n\nHarden doctor so it refuses the init template.\n');
