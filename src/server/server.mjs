@@ -651,7 +651,9 @@ export function handleAction(store, body) {
         question: body.question || '',
         alternatives: normList(body.alternatives),
         arguments: normList(body.arguments),
-        chosen: body.chosen || '',
+        chosen: requireText(body.chosen, 'chosen',
+          'a decision appears in every brief under do-not-reopen, so one that chose'
+          + ' nothing instructs future turns and cannot be argued with'),
         why: body.why || '',
         participants: requireEach(normList(body.participants), RECIPIENTS, 'participant'),
         humanRole: requireEnum(body.humanRole || 'none', HUMAN_ROLES, 'human role'),
@@ -664,7 +666,8 @@ export function handleAction(store, body) {
       const id = `DEB-${String(++s.counters.debate).padStart(2, '0')}`;
       const ev = store.append('debate.opened', agent, {
         id,
-        question: body.question || '',
+        question: requireText(body.question, 'question',
+          'a debate with no question is one nobody else can take a position on'),
         relatedTask: body.relatedTask ? requireTask(s, body.relatedTask) : null,
       });
       return { ok: true, seq: ev.seq, id };
@@ -678,7 +681,9 @@ export function handleAction(store, body) {
       requireOpenDebate(s, body.id);
       return ok(store.append('debate.position', agent, {
         id: body.id,
-        stance: body.stance || '',
+        stance: requireText(body.stance, 'stance',
+          'a position with no stance is recorded as a participant who said nothing,'
+          + ' which makes the debate look settled'),
         because: body.because || '',
         critique: body.critique || '',
         round: body.round || null,
@@ -1022,6 +1027,26 @@ function requireEach(values, allowed, label) {
     }
   }
   return values;
+}
+
+/**
+ * The field that IS the content cannot be empty.
+ *
+ * requireOpenDebate already stops a position aimed at a debate that does not
+ * exist, on the grounds that silent disappearance is the worst failure this
+ * studio can have. An empty position is the same failure one field deeper, and
+ * it happened: an agent posted a stance, a because and a critique that were all
+ * empty strings, the server said ok, and the brief listed them as a participant
+ * who had argued nothing. Nobody saw it until someone read the raw event log.
+ *
+ * That is worse than a refusal, because a debate with a silent participant
+ * looks settled. So the content field is required and the refusal says which
+ * one, rather than recording a record of nothing.
+ */
+function requireText(value, label, why) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (text) return text;
+  throw new Error(`${label} cannot be empty — ${why}`);
 }
 
 function requireTask(s, id, label = 'task') {

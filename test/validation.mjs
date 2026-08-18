@@ -96,8 +96,34 @@ try {
     { verb: 'debate.position', agent: 'codex', id: deb.id, stance: 'late' }, ['already', 'closed']);
   await refuses('closing an already-closed debate is refused',
     { verb: 'debate.close', agent: 'codex', id: deb.id, outcome: 'again' }, ['already', 'closed']);
+  const deb2 = await accepts('a second debate can be opened',
+    { verb: 'debate.open', agent: 'claude', question: 'is an empty position a position?' });
   await refuses('answering a question that does not exist is refused',
     { verb: 'question.close', agent: 'claude', id: 'Q-99', answer: 'x' }, ['no such question']);
+
+  // WITNESSED THIS SESSION, not hypothetical. grok-imp posted a DEB-04 position
+  // whose stance, because and critique were all empty strings. The server said
+  // ok, the brief listed them as having taken a position, and their argument was
+  // gone. Nobody noticed until someone read the raw event log.
+  //
+  // That is the same failure this whole file exists to prevent, one field deeper
+  // than the case above: the record says an agent spoke and it said nothing. A
+  // debate is the studio's mechanism for disagreeing well, so a position with no
+  // content is worse than a refusal — it makes the debate look settled.
+  await refuses('a position with nothing in it is refused rather than recorded as silence',
+    { verb: 'debate.position', agent: 'claude', id: deb2.id }, ['stance']);
+  await refuses('whitespace is not an argument either',
+    { verb: 'debate.position', agent: 'claude', id: deb2.id, stance: '   ' }, ['stance']);
+  await accepts('a position with only a stance is still a position',
+    { verb: 'debate.position', agent: 'claude', id: deb2.id, stance: 'yes' });
+
+  // Same shape, higher stakes: a decision appears in every brief under "do not
+  // reopen without new information". One with no chosen option is an instruction
+  // to future turns that says nothing and cannot be argued with.
+  await refuses('a decision that chose nothing is refused',
+    { verb: 'decision', agent: 'claude', question: 'which?' }, ['chosen']);
+  await refuses('a debate nobody can answer is refused',
+    { verb: 'debate.open', agent: 'claude', question: '  ' }, ['question']);
 
   console.log('\n human attention');
   await refuses('an attention item pointing at a task that does not exist is refused',
