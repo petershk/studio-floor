@@ -101,6 +101,10 @@ const turnsStarted = (store) => store.events.filter((e) => e.kind === 'raw.turn.
 
 {
   const store = freshStore();
+  // The runner is constructed first, then the run spends: that is the real
+  // order, and it is what makes the spend belong to this run rather than to
+  // the log's history.
+  const runner = makeRunner(store, { maxSpendUsd: 1.0 });
   // $1.50 of provider-reported cost, spread over two agents.
   store.append('raw.usage', 'alpha', {
     usage: { input_tokens: 100, output_tokens: 50 }, costUsd: 1.0, scope: 'turn',
@@ -109,7 +113,6 @@ const turnsStarted = (store) => store.events.filter((e) => e.kind === 'raw.turn.
     usage: { input_tokens: 100, output_tokens: 50 }, costUsd: 0.5, scope: 'turn',
   });
 
-  const runner = makeRunner(store, { maxSpendUsd: 1.0 });
   check('spend is read from the ledger', Math.abs(runner.spend().total - 1.5) < 1e-9, String(runner.spend().total));
 
   await runUntilQuiet(runner);
@@ -163,10 +166,48 @@ const turnsStarted = (store) => store.events.filter((e) => e.kind === 'raw.turn.
     /turn budget of 3 reached/.test(stopped[0]?.data?.reason || ''), stopped[0]?.data?.reason || '');
 }
 
+// -------------------------------------- the budget is on the run, not the log
+
+// The store replays the whole event log on boot, so its usage total is the
+// lifetime spend of the project. Measuring a cap against that means a studio
+// with any history is already over budget before its first turn — it stops
+// instantly against money spent days ago. This is what shipping the cap against
+// the lifetime total did on a real log carrying $65.84 of earlier runs.
+{
+  const store = freshStore();
+  store.append('raw.usage', 'alpha', {
+    usage: { input_tokens: 10, output_tokens: 10 }, costUsd: 65.84, scope: 'turn',
+  });
+
+  // A runner constructed AFTER that history baselines against it.
+  const runner = makeRunner(store, { maxSpendUsd: 5 });
+  const s = runner.spend();
+  check('a fresh run starts at zero spent, whatever the log holds', s.total === 0, String(s.total));
+  check('and the lifetime figure is still available', Math.abs(s.lifetime - 65.84) < 1e-9, String(s.lifetime));
+  check('the qualifier says which one it is', /this run/.test(s.qualifier), s.qualifier);
+
+  await runUntilQuiet(runner);
+  check('history alone does not stop the team', stops(store, 'spend').length === 0,
+    `stopped=${stops(store, 'spend').length}`);
+
+  // Spend accrued during the run does count, and does stop it.
+  store.append('raw.usage', 'alpha', {
+    usage: { input_tokens: 10, output_tokens: 10 }, costUsd: 6, scope: 'turn',
+  });
+  check('spend during the run counts', Math.abs(runner.spend().total - 6) < 1e-9, String(runner.spend().total));
+
+  const runner2 = makeRunner(store, { maxSpendUsd: 5 });
+  runner2.spendAtStart = 65.84; // same run, restated
+  await runUntilQuiet(runner2);
+  check('and it stops the team once it passes the cap', stops(store, 'spend').length === 2,
+    `stopped=${stops(store, 'spend').length}`);
+}
+
 // ------------------------------------------- the number is a floor, not a bill
 
 {
   const store = freshStore();
+  const runner = makeRunner(store, { maxSpendUsd: 100 });
   // alpha's provider reports cost. beta's does not, and no rate is configured,
   // so beta's tokens are real and its spend is invisible.
   store.append('raw.usage', 'alpha', {
@@ -176,7 +217,6 @@ const turnsStarted = (store) => store.events.filter((e) => e.kind === 'raw.turn.
     usage: { input_tokens: 900_000, output_tokens: 900_000 }, scope: 'turn',
   });
 
-  const runner = makeRunner(store, { maxSpendUsd: 100 });
   const s = runner.spend();
 
   check('an unpriced provider contributes nothing to the total', Math.abs(s.total - 0.25) < 1e-9, String(s.total));
@@ -189,10 +229,10 @@ const turnsStarted = (store) => store.events.filter((e) => e.kind === 'raw.turn.
 
 {
   const store = freshStore();
+  const runner = makeRunner(store, { maxSpendUsd: 10, maxWallMs: 60 * 60 * 1000, maxTurns: 50 });
   store.append('raw.usage', 'alpha', {
     usage: { input_tokens: 10, output_tokens: 10 }, costUsd: 2, scope: 'turn',
   });
-  const runner = makeRunner(store, { maxSpendUsd: 10, maxWallMs: 60 * 60 * 1000, maxTurns: 50 });
   runner.startedAt = Date.now() - 15 * 60 * 1000;
   const b = runner.budgets();
 

@@ -45,6 +45,17 @@ export class Runner {
     this.startedAt = null;
     /** Set once a team budget ends the run, so only one agent calls stopAll. */
     this.budgetHit = null;
+    /**
+     * What the ledger already held when this studio started.
+     *
+     * The store replays the whole event log on boot, so its usage total is the
+     * lifetime spend of the project — every run that ever happened here. A
+     * budget measured against that is not a budget: on a studio with any
+     * history at all it is already blown before the first turn, and the team
+     * stops instantly against money spent days ago. The cap is on the delta,
+     * exactly as the wall clock measures this run and not the calendar.
+     */
+    this.spendAtStart = this.#ledgerTotal();
     const roster = config.roster || AGENTS;
     for (const id of config.agents) {
       const record = roster.find((a) => a.id === id) || getAgent(id);
@@ -240,16 +251,26 @@ export class Runner {
    * shows this number is expected to repeat it. A cap that quietly undercounts
    * is worse than no cap, because it reads like a guarantee.
    */
+  /** Every dollar the ledger knows about, across the whole log. */
+  #ledgerTotal() {
+    let n = 0;
+    for (const t of Object.values(this.store.usage?.snapshot()?.byAgent || {})) n += t.costUsd || 0;
+    return n;
+  }
+
   spend() {
     const rows = Object.entries(this.store.usage?.snapshot()?.byAgent || {});
-    let total = 0;
+    let lifetime = 0;
     let estimated = 0;
     const unpriced = [];
     for (const [id, t] of rows) {
-      total += t.costUsd || 0;
+      lifetime += t.costUsd || 0;
       estimated += t.costEstimated || 0;
       if (!t.reportsCost && !t.costEstimated && (t.input || t.output)) unpriced.push(id);
     }
+    // What this run has cost. Never negative: a reset log would otherwise make
+    // the baseline larger than the total and read as credit.
+    const total = Math.max(0, lifetime - (this.spendAtStart || 0));
     const notes = [];
     if (estimated > 0) notes.push('partly estimated from your configured rates');
     if (unpriced.length) {
@@ -258,9 +279,10 @@ export class Runner {
     }
     return {
       total,
+      lifetime,
       estimated,
       unpriced,
-      qualifier: notes.length ? `spent (${notes.join('; ')})` : 'spent',
+      qualifier: notes.length ? `spent this run (${notes.join('; ')})` : 'spent this run',
     };
   }
 
@@ -289,6 +311,9 @@ export class Runner {
       spend: {
         limit: cap,
         total: s.total,
+        // The whole log, for the panel's "total so far" figure. The budget is
+        // deliberately not measured against this — see spendAtStart.
+        lifetime: s.lifetime,
         estimated: s.estimated,
         unpriced: s.unpriced,
         remainingUsd: cap ? Math.max(0, cap - s.total) : null,

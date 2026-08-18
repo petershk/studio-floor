@@ -158,7 +158,11 @@ function budgetBlock(b) {
       pct(b.time.remainingMs, b.time.limit)));
   }
   if (b.spend?.limit) {
-    rows.push(bar('Spend', money(b.spend.remainingUsd), `of ${money(b.spend.limit)} — estimated`,
+    // "this run" is not decoration. The ledger above totals the whole event
+    // log, so the two numbers on this page differ by every earlier run, and
+    // without the label the budget looks broken rather than scoped.
+    rows.push(bar('Spend', money(b.spend.remainingUsd),
+      `of ${money(b.spend.limit)} this run — estimated`,
       pct(b.spend.remainingUsd, b.spend.limit)));
   }
   if (b.turns?.limit) {
@@ -172,7 +176,13 @@ function budgetBlock(b) {
   return `<section class="set-block">
     <h3>Budgets</h3>
     ${rows.length
-    ? `<div class="u-budgets">${rows.join('')}</div>`
+    ? `<div class="u-budgets">${rows.join('')}</div>
+       <p class="muted">Time and spend are measured from this studio's start, not from the
+       whole event log — the total above covers every run this project has ever had, and a
+       budget measured against that would be spent before the team took a turn.
+       ${b.spend?.limit && b.spend.lifetime > b.spend.total
+    ? `This run has spent <b>${money(b.spend.total)}</b> of the
+          <b>${money(b.spend.lifetime)}</b> shown above.` : ''}</p>`
     : `<p class="muted">No time or spend limit is set, so this team runs until you stop it
        or its turn budget runs out. Set <code>maxWallMs</code> or <code>maxSpendUsd</code>
        in the runner settings before leaving it unattended.</p>`}
