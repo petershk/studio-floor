@@ -106,6 +106,7 @@ periodically and a stale command in this file would be worse than a link.
 | **Claude Code** | [claude.com/claude-code](https://claude.com/claude-code) | `claude auth login` | `claude --version` |
 | **OpenAI Codex** | [developers.openai.com/codex](https://developers.openai.com/codex) | `codex login` | `codex --version` |
 | **Grok** | [xAI's CLI docs](https://docs.x.ai) | `grok login` | `grok --version` |
+| **Gemini CLI** | `npm i -g @google/gemini-cli` | `gemini` once, interactively | `gemini --version` |
 
 Each `--version` must print something **in a new terminal**, not just in the one
 where you installed it. If it does not, the installer did not put it on your

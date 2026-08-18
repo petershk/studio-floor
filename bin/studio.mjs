@@ -177,6 +177,7 @@ async function doctor() {
   const { spawnSync } = await import('node:child_process');
   const { CONFIG, AGENTS } = await load(SRC, 'core', 'roster.mjs');
   const { getAdapter, loadUserAdapters, providers } = await load(SRC, 'agents', 'adapters', 'index.mjs');
+  const { resolveLaunch } = await load(SRC, 'agents', 'launch.mjs');
   const { CONFIG_FILE, PROJECT_ROOT } = await load(SRC, 'core', 'paths.mjs');
   const fs = await import('node:fs');
 
@@ -207,13 +208,22 @@ async function doctor() {
     }
     const cmd = a.options?.command || adapter.command;
     if (!seen.has(cmd)) {
-      // One string, not an args array: on Windows these CLIs are .cmd shims
-      // that need a shell, and shell + args array concatenates unescaped
-      // (DEP0190). The command is quoted so a path with spaces still works.
-      const line = [`"${cmd}"`, ...(adapter.versionArgs || ['--version'])].join(' ');
-      const probe = spawnSync(line, { encoding: 'utf8', shell: true, timeout: 15_000 });
-      const found = probe.status === 0;
-      seen.set(cmd, { found, version: (probe.stdout || probe.stderr || '').trim().split('\n')[0] });
+      // Probe exactly the way the runner launches, or doctor reports healthy for
+      // an agent that cannot start. This used to shell out, which papered over the
+      // .cmd problem the runner then hit for real.
+      const r = resolveLaunch(cmd);
+      if (r.error) {
+        seen.set(cmd, { found: false, version: '', why: r.error });
+      } else {
+        const probe = spawnSync(r.command,
+          [...(r.prefixArgs || []), ...(adapter.versionArgs || ['--version'])],
+          { encoding: 'utf8', timeout: 20_000, windowsHide: true });
+        seen.set(cmd, {
+          found: probe.status === 0,
+          version: (probe.stdout || probe.stderr || '').trim().split('\n')[0],
+          via: r.via ? 'npm shim' : null,
+        });
+      }
     }
     const r = seen.get(cmd);
     if (r.found) ok(`${a.id} → ${a.provider} (${cmd}${r.version ? ` — ${r.version}` : ''})`);

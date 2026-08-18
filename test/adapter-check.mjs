@@ -12,6 +12,7 @@
  *   node test/adapter-check.mjs codex grok   just those
  */
 import { spawn } from 'node:child_process';
+import { resolveLaunch } from '../src/agents/launch.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -78,7 +79,16 @@ function report(name, cond, detail) {
 
 function run(adapter, args, cwd) {
   return new Promise((resolve) => {
-    const child = spawn(adapter.command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    // Resolve exactly as the runner does. Spawning adapter.command directly
+    // would pass here on a machine with native installs and fail in the runner
+    // on one with npm installs — a green check for a launch that cannot happen.
+    const launch = resolveLaunch(adapter.command);
+    if (launch.error) {
+      resolve({ code: -1, items: [], lines: 0, stderr: launch.error });
+      return;
+    }
+    const child = spawn(launch.command, [...(launch.prefixArgs || []), ...args],
+      { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     const items = [];
     let buf = '';
     let lines = 0;

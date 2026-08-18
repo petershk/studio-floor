@@ -4,6 +4,7 @@ import { PROJECT_ROOT } from '../../core/paths.mjs';
 import codex from './codex.mjs';
 import claude from './claude.mjs';
 import grok from './grok.mjs';
+import gemini from './gemini.mjs';
 
 /**
  * The adapter registry.
@@ -88,7 +89,7 @@ export async function loadUserAdapters(specs = []) {
   return loaded;
 }
 
-for (const a of [codex, claude, grok]) register(a);
+for (const a of [codex, claude, grok, gemini]) register(a);
 
 /**
  * The built-in adapters as a plain object, keyed by provider.

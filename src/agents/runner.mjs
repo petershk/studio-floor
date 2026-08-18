@@ -4,6 +4,7 @@ import path from 'node:path';
 import { PROJECT_ROOT, STATE_DIR, TRANSCRIPT_DIR, BASE_URL, STUDIO_CMD } from '../core/paths.mjs';
 import { CONFIG, AGENTS, getAgent } from '../core/roster.mjs';
 import { getAdapter } from './adapters/index.mjs';
+import { resolveLaunch } from './launch.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
 
 /**
@@ -408,17 +409,27 @@ export class Runner {
       };
       // An agent may override the executable — a wrapper script, a pinned
       // version, or the same provider reached through a different binary.
-      const command = a.record.options?.command || adapter.command;
+      const wanted = a.record.options?.command || adapter.command;
+      // On Windows an npm-installed CLI is a .cmd shim that Node will not spawn
+      // without a shell, and a shell is not an option here: one of the arguments
+      // is the turn prompt, which is arbitrary text. See agents/launch.mjs.
+      const launch = resolveLaunch(wanted);
+      if (launch.error) {
+        this.store.append('raw.error', a.id, { text: launch.error });
+        return resolve({ code: -1, signal: null, durationMs: 0, sessionProblem: false, launchFailed: true });
+      }
+      const command = launch.command;
+      const spawnArgs = [...(launch.prefixArgs || []), ...args];
       let child;
       try {
-        child = spawn(command, args, {
+        child = spawn(command, spawnArgs, {
           cwd: PROJECT_ROOT,
           env,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         });
       } catch (err) {
-        this.store.append('raw.error', a.id, { text: `could not launch ${command}: ${err.message}` });
+        this.store.append('raw.error', a.id, { text: `could not launch ${wanted}: ${err.message}` });
         return resolve({ code: -1, signal: null, durationMs: 0, sessionProblem: false, launchFailed: true });
       }
       a.child = child;

@@ -78,6 +78,7 @@ const PROVIDER_DEFAULTS = {
   codex: { sandbox: 'workspace-write', model: '' },
   claude: { permissionMode: 'auto', model: '', disableMcp: true },
   grok: { permissionMode: 'auto', model: '' },
+  gemini: { permissionMode: 'auto', model: '' },
 };
 
 const ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
@@ -194,7 +195,7 @@ function pickOptionKeys(a) {
 
 function resolvePersona(persona, provider) {
   if (!persona) {
-    const fallback = { codex: 'implementer', claude: 'architect', grok: 'adversary' }[provider];
+    const fallback = { codex: 'implementer', claude: 'architect', grok: 'adversary', gemini: 'researcher' }[provider];
     return fallback ? PERSONAS[fallback] + PERSONA_SUFFIX : '';
   }
   if (PERSONAS[persona]) return PERSONAS[persona] + PERSONA_SUFFIX;

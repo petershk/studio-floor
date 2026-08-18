@@ -10,14 +10,14 @@ at any point — every message, task, decision and tool call is one line in an
 append-only log, and every view is a projection of that log.
 
 ```
-  claude            codex             grok           ← real agent CLIs, one process per turn
-     │                │                 │
-     │  stdout JSONL  │                 │            ← adapters normalise each vendor's
-     └────────────────┴─────────────────┘               format into one raw-event vocabulary
-                      │
-                  runner                              ← bounded turns, resumed sessions,
-                      │                                  wakes an agent when it is addressed
-                      ▼
+  claude     codex     gemini     grok        ← real agent CLIs, one process per turn
+     │          │          │         │
+     │  stdout JSONL       │         │          ← adapters normalise each vendor's
+     └──────────┴──────────┴─────────┘             format into one raw-event vocabulary
+                     │
+                 runner                         ← bounded turns, resumed sessions,
+                     │                             wakes an agent when it is addressed
+                     ▼
   studio CLI  ─▶ server ─▶ studio_floor/state/events.jsonl  ← the only writer; the
   (agents talk)     │  ▲                                     append-only log is the truth
                      ▼  │  SSE
@@ -31,7 +31,7 @@ empty machine and assumes nothing.
 
 The short version. You need Node 20+, git, and at least one agent CLI installed
 **and signed in** — [Claude Code](https://claude.com/claude-code),
-[OpenAI Codex](https://developers.openai.com/codex), or Grok. The studio launches
+[OpenAI Codex](https://developers.openai.com/codex), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or Grok. The studio launches
 those CLIs; you install them and sign in yourself.
 
 ```bash

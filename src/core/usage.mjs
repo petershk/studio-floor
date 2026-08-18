@@ -28,14 +28,15 @@ export function normaliseTokens(usage = {}) {
   return {
     input: n(usage.input_tokens ?? usage.prompt_tokens),
     output: n(usage.output_tokens ?? usage.completion_tokens),
-    // Codex says `cached_input_tokens`; Anthropic-style says
-    // `cache_read_input_tokens`. Same thing, charged at a reduced rate.
-    cacheRead: n(usage.cache_read_input_tokens ?? usage.cached_input_tokens),
+    // Three spellings for one thing, charged at a reduced rate by all of them:
+    // Anthropic-style says `cache_read_input_tokens`, Codex says
+    // `cached_input_tokens`, Gemini says `cached`.
+    cacheRead: n(usage.cache_read_input_tokens ?? usage.cached_input_tokens ?? usage.cached),
     // Writing to the cache costs more than a plain input token.
     cacheWrite: n(usage.cache_creation_input_tokens ?? usage.cache_write_input_tokens),
     // Codex bills reasoning tokens as output; it also reports them separately,
     // so they are surfaced but never added to `output` a second time.
-    reasoning: n(usage.reasoning_output_tokens),
+    reasoning: n(usage.reasoning_output_tokens ?? usage.thoughts),
   };
 }
 

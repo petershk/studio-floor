@@ -104,7 +104,7 @@ Order matters — it is the order in the UI and the order agents are started in.
 | key | meaning |
 | --- | --- |
 | `id` | **required.** What the team calls it. Lowercase letters, digits, dashes. Must be unique. |
-| `provider` | which adapter to use. Defaults to `id`, which is why `{"id":"claude"}` alone works. |
+| `provider` | which adapter to use: `claude`, `codex`, `grok`, `gemini`, or one you added. Defaults to `id`. |
 | `label` | display name. Derived from the id if omitted. |
 | `persona` | a built-in name, or your own text. See below. |
 | `model` | passed to the provider. Empty means the CLI's default. |
@@ -117,7 +117,7 @@ Provider-specific:
 | key | provider | meaning |
 | --- | --- | --- |
 | `sandbox` | codex | `read-only`, `workspace-write` (default), or `full`. |
-| `permissionMode` | claude, grok | `auto` (default), `acceptEdits`, `default`. |
+| `permissionMode` | claude, grok, gemini | `auto` (default), `acceptEdits`, `default`. For Gemini these map to its `yolo`, `auto_edit` and `default` approval modes. |
 | `disableMcp` | claude | default `true`. MCP servers load per turn and cost real seconds on every turn of every agent. |
 
 `codex` with `sandbox: "workspace-write"` has **no network access**, so it cannot

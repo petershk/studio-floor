@@ -61,9 +61,76 @@ assert.ok(cModel.includes('claude-opus-5'));
 const extra = claude.args({ prompt, sessionId: 'sid', fresh: false, agent: agentOf({ extraArgs: ['--foo', 'bar'] }) });
 assert.ok(extra.includes('--foo') && extra.includes('bar'));
 
+// -------------------------------------------------------------------- gemini
+
+const gemini = getAdapter('gemini');
+{
+  const g = agentOf({ permissionMode: 'auto' });
+  const fresh = gemini.args({ prompt, sessionId: 'sid', fresh: true, agent: g });
+  const resumed = gemini.args({ prompt, sessionId: 'sid', fresh: false, agent: g });
+
+  // Without this, a headless run refuses with "not running in a trusted
+  // directory" -- and exits 0 while refusing, so the runner would read it as a
+  // completed turn and acknowledge the agent's inbox against nothing.
+  assert.ok(fresh.includes('--skip-trust'), 'gemini must always skip the trust prompt');
+  assert.ok(resumed.includes('--skip-trust'));
+
+  // A repeated --session-id is refused by the CLI with "already exists. Use
+  // --resume". Verified against v0.55: --resume does take the UUID, despite the
+  // help text describing it as "latest" or an index.
+  assert.ok(fresh.includes('--session-id'), 'a fresh gemini turn declares the session id');
+  assert.ok(!fresh.includes('--resume'));
+  assert.ok(resumed.includes('--resume'), 'a later gemini turn resumes by id');
+  assert.ok(!resumed.includes('--session-id'), 'resuming must not also declare the id');
+
+  assert.ok(fresh.includes('stream-json'), 'gemini streams so tool calls are visible live');
+  assert.deepEqual(
+    gemini.args({ prompt, sessionId: 's', fresh: true, agent: agentOf({ permissionMode: 'auto' }) })
+      .slice(-1), ['yolo'],
+    'the studio auto mode maps to gemini yolo: an agent that must stop and ask cannot take a turn',
+  );
+  assert.ok(gemini.args({ prompt, sessionId: 's', fresh: true, agent: agentOf({ permissionMode: 'default' }) })
+    .includes('default'), 'and "default" still means ask');
+  assert.ok(gemini.args({ prompt, sessionId: 's', fresh: true, agent: agentOf({ permissionMode: 'acceptEdits' }) })
+    .includes('auto_edit'));
+}
+{
+  // Real event shapes, copied from the CLI's own output.
+  const sess = gemini.parse({ type: 'init', session_id: 'abc', model: 'gemini-3.5-flash' });
+  assert.equal(sess.find((i) => i.kind === 'session')?.data.sessionId, 'abc');
+
+  const assistant = gemini.parse({ type: 'message', role: 'assistant', content: 'hello', delta: true });
+  assert.equal(assistant[0].kind, 'raw.text');
+
+  // The user role is the studio's own prompt read back; showing it would put
+  // our words in the feed as though the model had said them.
+  assert.deepEqual(gemini.parse({ type: 'message', role: 'user', content: 'our prompt' }), []);
+
+  const call = gemini.parse({ type: 'tool_use', tool_name: 'write_file', tool_id: 't1', parameters: { file_path: 'a.js' } });
+  assert.equal(call[0].kind, 'raw.tool.call');
+  assert.deepEqual(call[1], { kind: 'files', data: { action: 'changed', files: ['a.js'] } },
+    'a write is reported as a file change');
+
+  const res = gemini.parse({ type: 'tool_result', tool_id: 't1', status: 'error', output: 'nope' });
+  assert.equal(res[0].data.isError, true);
+
+  const done = gemini.parse({
+    type: 'result',
+    status: 'success',
+    stats: { input_tokens: 9037, output_tokens: 39, cached: 0, duration_ms: 5244 },
+  });
+  const usage = done.find((i) => i.kind === 'raw.usage');
+  assert.equal(usage.data.scope, 'turn', 'gemini reports one total per invocation');
+  assert.equal(usage.data.durationMs, 5244);
+  assert.equal(usage.data.costUsd, undefined, 'no cost is invented for a provider that reports none');
+
+  assert.equal(gemini.parse({ type: 'something-new' })[0].kind, 'raw.native',
+    'an unrecognised event is surfaced, never dropped');
+}
+
 // ------------------------------------------------------------------ registry
 
-assert.deepEqual(providers().sort(), ['claude', 'codex', 'grok']);
+assert.deepEqual(providers().sort(), ['claude', 'codex', 'gemini', 'grok']);
 assert.ok(ADAPTERS.codex, 'the ADAPTERS view exposes built-ins by provider name');
 assert.equal(getAdapter('nope'), null);
 
