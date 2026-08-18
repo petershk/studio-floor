@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { WEB_DIR, PORT, HOST, CONFIG_FILE } from '../core/paths.mjs';
+import { WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
 import { AGENTS, SERVER as SERVER_CONFIG, PROJECT } from '../core/roster.mjs';
 import { providers } from '../agents/adapters/index.mjs';
@@ -9,6 +9,9 @@ import {
   readRawConfig, applyConfigPatch, saveRawConfig, restartRequiredFor, normaliseConfig,
   configSchema, PERSONAS, AGENT_PROTECTED_OPTIONS, RUNNER_EDITABLE,
 } from '../core/config.mjs';
+import {
+  inspect, problemsWith, recentProjects, requestSwitch, forgetProject,
+} from '../core/projects.mjs';
 
 /**
  * A shared secret the human's browser and the agents' CLI must present.
@@ -122,6 +125,23 @@ export function createHttpServer(store, runner) {
 
       if (p === '/api/config' && req.method !== 'POST') return json(res, readConfigForUi());
 
+      if (p === '/api/projects' && req.method !== 'POST') {
+        return json(res, {
+          ok: true,
+          current: { ...inspect(PROJECT_ROOT), legacyLayout: IS_LEGACY_LAYOUT },
+          recent: recentProjects(),
+        });
+      }
+
+      // Look before you leap: the panel calls this as you type, so a switch is
+      // never offered for a directory that cannot take one.
+      if (p === '/api/projects/inspect') {
+        const dir = url.searchParams.get('path') || '';
+        if (!dir) return json(res, { ok: false, error: 'no path given' }, 400);
+        const info = inspect(dir);
+        return json(res, { ok: true, info, problems: problemsWith(info) });
+      }
+
       if (req.method === 'POST') {
         const body = await readJson(req);
         // Where did this come from?
@@ -139,6 +159,17 @@ export function createHttpServer(store, runner) {
         // stop an honest mistake from impersonating the human, which is the failure
         // that actually happened.
         if (p.startsWith('/api/human/')) body.via = req.headers.origin || req.headers.referer ? 'browser' : 'api';
+
+        if (p === '/api/projects') {
+          if (!sameOrigin(req)) {
+            return json(res, {
+              ok: false,
+              error: 'refused: this request came from another origin. Pointing the studio at a '
+                + 'directory decides where agents run commands, so it is not writable cross-site.',
+            }, 403);
+          }
+          return switchProject(store, runner, body, res);
+        }
 
         if (p === '/api/config') {
           if (!sameOrigin(req)) {
@@ -223,6 +254,68 @@ export function createHttpServer(store, runner) {
   // and should not do that without STUDIO_TOKEN.
   server.listen(PORT, HOST);
   return server;
+}
+
+// ------------------------------------------------------------------ projects
+
+/**
+ * Point the studio at a different directory, or forget one.
+ *
+ * This process cannot follow: its project root was fixed at import and its store
+ * has already replayed one log. So it stops the agents, records where to go, and
+ * exits with EXIT_SWITCH — the supervisor starts a fresh studio there.
+ *
+ * Resume is not implemented anywhere, because it does not need to be. A
+ * project's event log lives inside the project, so arriving at a directory the
+ * team has worked in before finds the whole history where it was left. Reset is
+ * the deliberate opposite: the supervisor deletes that state before the new
+ * studio starts, while nothing is holding the files open.
+ */
+async function switchProject(store, runner, body, res) {
+  const { path: target, reset = false, forget = false } = body || {};
+  if (typeof target !== 'string' || !target.trim()) {
+    return json(res, { ok: false, error: 'no path given' }, 400);
+  }
+
+  if (forget) {
+    return json(res, { ok: true, forgotten: true, recent: forgetProject(target) });
+  }
+
+  const info = inspect(target);
+  const problems = problemsWith(info);
+  if (problems.length) return json(res, { ok: false, errors: problems }, 400);
+
+  if (path.resolve(target) === PROJECT_ROOT && !reset) {
+    return json(res, { ok: false, error: 'the studio is already working in that directory' }, 400);
+  }
+
+  store.append('human.control', null, {
+    action: 'switch-project',
+    text: `pointed the studio at ${path.resolve(target)}${reset ? ' and reset its history' : ''}`
+      + `${info.hasState && !reset ? ` — resuming ${info.events} recorded events` : ''}`,
+    via: 'browser',
+    target: path.resolve(target),
+    reset: Boolean(reset),
+  });
+
+  // Answer before leaving, or the browser sees a dropped socket instead of a
+  // reason. The exit is deferred just long enough for this response to flush.
+  json(res, {
+    ok: true,
+    switching: path.resolve(target),
+    reset: Boolean(reset),
+    resuming: info.hasState && !reset ? info.events : 0,
+  });
+
+  setTimeout(async () => {
+    try {
+      await runner?.stopAll('the human pointed the studio at another project');
+    } catch { /* leaving anyway */ }
+    requestSwitch(target, { reset });
+    store.close?.();
+    process.exit(EXIT_SWITCH);
+  }, 250);
+  return undefined;
 }
 
 // ------------------------------------------------------------------- config

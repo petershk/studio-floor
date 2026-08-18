@@ -15,14 +15,18 @@
 
 const $ = (id) => document.getElementById(id);
 
+let projects = null;  // the last /api/projects payload
+let pathDraft = '';   // the directory the human is typing
+let probe = null;     // what /api/projects/inspect says about it
 let data = null;      // the last /api/config payload
 let draft = null;     // what the human has typed but not saved
 let dirty = false;
 let notice = null;    // { kind, text } shown above the form
 
 async function load() {
-  const r = await fetch('/api/config');
+  const [r, pr] = await Promise.all([fetch('/api/config'), fetch('/api/projects')]);
   data = await r.json();
+  projects = await pr.json().catch(() => null);
   if (!data.ok) {
     render();
     return;
@@ -85,6 +89,8 @@ function render() {
     </div>` : ''}
     ${dirty ? '<div class="set-notice">Unsaved changes.</div>' : ''}
 
+    ${projectBlock()}
+
     <section class="set-block">
       <h3>Project</h3>
       <p class="muted">What the team is for. The brief is the file every agent reads
@@ -144,6 +150,72 @@ function render() {
   `;
 
   wire();
+}
+
+/**
+ * Which directory the team is working in, and how to point it somewhere else.
+ *
+ * A switch is not an edit: this process resolved its project root at import and
+ * its store has already replayed one log, so pointing elsewhere replaces the
+ * studio rather than reconfiguring it. The button says "switch and restart"
+ * because that is what happens.
+ */
+function projectBlock() {
+  if (!projects?.ok) return '';
+  const cur = projects.current;
+  const p = probe;
+  const typed = pathDraft.trim();
+  const same = p && cur && p.info.path === cur.path;
+  const blocked = p ? p.problems.length > 0 : true;
+
+  return `
+    <section class="set-block">
+      <h3>Working directory</h3>
+      <p class="muted">The studio works on one project at a time. Its memory lives inside
+      that project, so coming back to a directory picks up exactly where the team left off.</p>
+
+      <div class="set-current">
+        <div class="mono">${esc(cur.path)}</div>
+        <div class="muted">
+          ${cur.hasBrief ? 'brief found' : '<b>no brief — the team will read the directory and draft one</b>'}
+          · ${cur.events ? `${cur.events} recorded events` : 'no history yet'}
+          ${cur.isGitRepo ? ' · git repo' : ' · <b>not a git repo</b>'}
+          ${cur.legacyLayout ? ' · legacy .studio layout' : ''}
+        </div>
+      </div>
+
+      <label class="set-f wide">
+        <span>Point the team at another directory</span>
+        <input class="input" id="proj-path" value="${esc(pathDraft)}" spellcheck="false"
+               placeholder="an absolute path to a project directory">
+      </label>
+
+      ${typed && p ? `<div class="set-probe ${blocked ? 'bad' : 'good'}">
+        ${blocked
+    ? p.problems.map((x) => esc(x)).join('; ')
+    : `<b>${esc(p.info.name)}</b> — ${p.info.entries} item(s)`
+      + `${p.info.isGitRepo ? ', git repo' : ', not a git repo'}`
+      + `${p.info.hasBrief ? ', has a brief' : ', <b>no brief — the team will draft one</b>'}`
+      + `${p.info.events ? `, <b>${p.info.events} events to resume</b>` : ', no history yet'}`}
+      </div>` : ''}
+
+      <div class="set-actions">
+        <button class="btn primary" id="proj-switch" type="button"
+          ${blocked || same ? 'disabled' : ''}>Switch and restart</button>
+        <button class="btn danger" id="proj-reset" type="button"
+          ${blocked ? 'disabled' : ''}>Switch and reset its history</button>
+      </div>
+      <p class="muted">Switching stops the agents and restarts the studio. Reset deletes that
+      project's recorded history — its code, brief and config are untouched.</p>
+
+      ${projects.recent?.length > 1 ? `<div class="set-recent">
+        <span class="muted">Recent</span>
+        ${projects.recent.filter((r) => r.path !== cur.path).slice(0, 6).map((r) => `
+          <button class="btn ghost" data-recent="${esc(r.path)}" title="${esc(r.path)}">
+            ${esc(r.name)}${r.events ? ` <span class="muted">${r.events}</span>` : ''}
+          </button>`).join('')}
+      </div>` : ''}
+    </section>`;
 }
 
 function agentCard(a, i, s) {
@@ -226,6 +298,7 @@ function agentCard(a, i, s) {
 // -------------------------------------------------------------------- wiring
 
 function wire() {
+  wireProject();
   $('settings').querySelectorAll('[data-path]').forEach((input) => {
     input.oninput = () => onEdit(input);
     input.onchange = () => onEdit(input);
@@ -284,6 +357,109 @@ function wire() {
   };
 
   $('set-save').onclick = save;
+}
+
+function wireProject() {
+  const input = $('proj-path');
+  if (!input) return;
+
+  let timer = null;
+  input.oninput = () => {
+    pathDraft = input.value;
+    // Probe as you type, debounced. A stat() per keystroke would be rude to the
+    // filesystem and would race its own responses.
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const typed = pathDraft.trim();
+      if (!typed) { probe = null; return renderKeepingCaret(); }
+      try {
+        probe = await (await fetch(`/api/projects/inspect?path=${encodeURIComponent(typed)}`)).json();
+      } catch {
+        probe = { ok: false, problems: ['could not reach the studio'], info: { path: typed } };
+      }
+      // Ignore a reply that arrived after the human typed on.
+      if (probe?.info?.path && pathDraft.trim() && probe.ok) renderKeepingCaret();
+      else renderKeepingCaret();
+    }, 220);
+  };
+
+  $('settings').querySelectorAll('[data-recent]').forEach((b) => {
+    b.onclick = () => {
+      pathDraft = b.dataset.recent;
+      probe = null;
+      render();
+      $('proj-path')?.focus();
+      $('proj-path')?.dispatchEvent(new Event('input'));
+    };
+  });
+
+  const go = async (reset) => {
+    const target = pathDraft.trim();
+    if (!target) return;
+    if (dirty && !confirm('You have unsaved configuration changes. Switch anyway and lose them?')) return;
+    if (reset && !confirm(
+      `Delete all recorded studio history for:
+
+${target}
+
+`
+      + 'Its code, brief and config are untouched. This cannot be undone.')) return;
+
+    setNotice('', 'Switching… the studio is restarting. This page will reconnect.');
+    render();
+    let r;
+    try {
+      r = await (await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: target, reset }),
+      })).json();
+    } catch {
+      // The server may exit before the response lands; that is a successful
+      // switch, not a failure, so say so rather than crying wolf.
+      return waitForRestart();
+    }
+    if (!r.ok) {
+      setNotice('warn', (r.errors || [r.error]).map(esc).join('; '));
+      return render();
+    }
+    return waitForRestart();
+  };
+
+  $('proj-switch').onclick = () => go(false);
+  $('proj-reset').onclick = () => go(true);
+}
+
+/**
+ * Wait for the replacement studio to answer, then reload.
+ *
+ * The old process exits and a new one binds the same port, so there is a gap of
+ * a second or two where nothing is listening. Polling through it is friendlier
+ * than a dead page and more honest than pretending the switch was instant.
+ */
+async function waitForRestart() {
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const r = await fetch('/api/state', { cache: 'no-store' });
+      if (r.ok) return void location.reload();
+    } catch { /* still down */ }
+  }
+  setNotice('warn', 'The studio did not come back. Check the terminal you started it in.');
+  render();
+}
+
+/** Re-render without stealing the caret out of the path box. */
+function renderKeepingCaret() {
+  const el = $('proj-path');
+  const pos = el?.selectionStart ?? null;
+  const focused = document.activeElement === el;
+  render();
+  const next = $('proj-path');
+  if (next && focused) {
+    next.focus();
+    if (pos != null) next.setSelectionRange(pos, pos);
+  }
 }
 
 function onEdit(input) {

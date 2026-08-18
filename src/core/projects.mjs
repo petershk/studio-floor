@@ -1,0 +1,178 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  PROJECTS_FILE, SWITCH_FILE, USER_DIR, HOME_DIR_NAME, DEFAULT_BRIEF, ensureUserDir,
+} from './paths.mjs';
+
+/**
+ * Projects the studio has been pointed at.
+ *
+ * The only state that does not belong to a project. It lives under the user's
+ * home rather than inside any one repository, because "which project was I
+ * working on" is a fact about the person, not about the code.
+ *
+ * Resume needs no machinery: a project's event log lives inside the project, so
+ * pointing the studio back at a directory it has seen before finds the whole
+ * history sitting where it was left. Reset is the deliberate act of deleting it.
+ */
+
+/** What a directory looks like from the outside, before we commit to it. */
+export function inspect(dir) {
+  const root = path.resolve(dir);
+  const out = {
+    path: root,
+    name: path.basename(root),
+    exists: false,
+    isDirectory: false,
+    readable: false,
+    writable: false,
+    hasBrief: false,
+    hasConfig: false,
+    hasState: false,
+    isGitRepo: false,
+    legacyLayout: false,
+    entries: 0,
+    events: 0,
+  };
+
+  try {
+    const st = fs.statSync(root);
+    out.exists = true;
+    out.isDirectory = st.isDirectory();
+  } catch {
+    return out;
+  }
+  if (!out.isDirectory) return out;
+
+  try {
+    const entries = fs.readdirSync(root);
+    out.readable = true;
+    out.entries = entries.filter((e) => e !== '.git' && e !== HOME_DIR_NAME).length;
+    out.isGitRepo = entries.includes('.git');
+  } catch {
+    return out;
+  }
+
+  try {
+    fs.accessSync(root, fs.constants.W_OK);
+    out.writable = true;
+  } catch { /* read-only: reported, not fatal to report on */ }
+
+  out.hasBrief = fs.existsSync(path.join(root, DEFAULT_BRIEF));
+
+  const modern = path.join(root, HOME_DIR_NAME);
+  const legacyCfg = path.join(root, 'studio.config.json');
+  const legacyState = path.join(root, '.studio');
+  out.legacyLayout = !fs.existsSync(modern) && (fs.existsSync(legacyCfg) || fs.existsSync(legacyState));
+
+  out.hasConfig = out.legacyLayout
+    ? fs.existsSync(legacyCfg)
+    : fs.existsSync(path.join(modern, 'config.json'));
+
+  const log = out.legacyLayout
+    ? path.join(legacyState, 'events.jsonl')
+    : path.join(modern, 'state', 'events.jsonl');
+  if (fs.existsSync(log)) {
+    out.hasState = true;
+    try {
+      // Line count is the honest measure of "is there anything to resume".
+      out.events = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).length;
+    } catch { /* unreadable log still counts as state */ }
+  }
+  return out;
+}
+
+/** Everything that stops a directory being usable as a project, in plain words. */
+export function problemsWith(info) {
+  const p = [];
+  if (!info.exists) p.push('that directory does not exist');
+  else if (!info.isDirectory) p.push('that path is a file, not a directory');
+  else if (!info.readable) p.push('that directory cannot be read');
+  else if (!info.writable) p.push('that directory is not writable — the studio needs to create studio_floor/ in it');
+  return p;
+}
+
+export function readProjects() {
+  try {
+    const list = JSON.parse(fs.readFileSync(PROJECTS_FILE, 'utf8'));
+    return Array.isArray(list) ? list.filter((p) => p && typeof p.path === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record that we opened this project, newest first. `at` is supplied, never generated. */
+export function rememberProject(dir, at) {
+  ensureUserDir();
+  const root = path.resolve(dir);
+  const rest = readProjects().filter((p) => path.resolve(p.path) !== root);
+  const list = [{ path: root, name: path.basename(root), lastOpened: at }, ...rest].slice(0, 20);
+  atomicWrite(PROJECTS_FILE, list);
+  return list;
+}
+
+export function forgetProject(dir) {
+  const root = path.resolve(dir);
+  const list = readProjects().filter((p) => path.resolve(p.path) !== root);
+  atomicWrite(PROJECTS_FILE, list);
+  return list;
+}
+
+/** Recent projects, annotated with what is actually on disk right now. */
+export function recentProjects() {
+  return readProjects().map((p) => ({ ...p, ...inspect(p.path) }));
+}
+
+// ------------------------------------------------------------------- switching
+
+/**
+ * Ask the supervisor to relaunch pointed somewhere else.
+ *
+ * The server cannot change its own project root — it was resolved at import and
+ * the store has already replayed one log — so the switch is a handoff: write
+ * where to go, exit with EXIT_SWITCH, and let the launcher start a fresh process
+ * there. A file rather than an argument because the supervisor is the parent and
+ * has no other channel back from the child.
+ */
+export function requestSwitch(dir, { reset = false } = {}) {
+  ensureUserDir();
+  atomicWrite(SWITCH_FILE, { path: path.resolve(dir), reset: Boolean(reset) });
+}
+
+export function takeSwitch() {
+  let req = null;
+  try {
+    req = JSON.parse(fs.readFileSync(SWITCH_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+  // Consumed, so a crash between reading and acting cannot loop forever.
+  try { fs.rmSync(SWITCH_FILE, { force: true }); } catch { /* already gone */ }
+  return req && typeof req.path === 'string' ? req : null;
+}
+
+/**
+ * Delete a project's studio memory. Its code and its brief are untouched.
+ *
+ * Deliberately narrow: it removes the state directory and nothing else, so a
+ * reset cannot take the config, the brief, or anything the human wrote.
+ */
+export function resetProjectState(dir) {
+  const root = path.resolve(dir);
+  const info = inspect(root);
+  const stateDir = info.legacyLayout
+    ? path.join(root, '.studio')
+    : path.join(root, HOME_DIR_NAME, 'state');
+  if (!fs.existsSync(stateDir)) return { removed: false, path: stateDir };
+  fs.rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  return { removed: true, path: stateDir };
+}
+
+function atomicWrite(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  fs.renameSync(tmp, file);
+}
+
+export { USER_DIR };

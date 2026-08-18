@@ -18,8 +18,8 @@ append-only log, and every view is a projection of that log.
                   runner                              ← bounded turns, resumed sessions,
                       │                                  wakes an agent when it is addressed
                       ▼
-  studio CLI  ──▶  server  ──▶  .studio/events.jsonl  ← the only writer; append-only log
-  (agents talk)      │  ▲                                is the single source of truth
+  studio CLI  ─▶ server ─▶ studio_floor/state/events.jsonl  ← the only writer; the
+  (agents talk)     │  ▲                                     append-only log is the truth
                      ▼  │  SSE
                    web UI                             ← what the human watches
 ```
@@ -50,7 +50,9 @@ cd ~/my-project
 git init
 
 # 3. set it up
-studio init                # writes PROJECT.md and studio.config.json
+studio init                # optional — writes PROJECT.md + studio_floor/config.json
+                           # skip it to point the team at an existing repo and
+                           # have them read the code and draft the brief
 
 # 4. write PROJECT.md — this is the step that decides whether it works
 $EDITOR PROJECT.md
@@ -69,7 +71,7 @@ Three things worth knowing before your first run:
 - **`git init` first.** Agents edit files and run commands. Git is the
   difference between "undo that" and "it is gone". This is your project's own
   repo — it has no remote and nothing to do with the studio's repo.
-- **Set `runner.maxTurns` to 10–20** in `studio.config.json` for the first run.
+- **Set `runner.maxTurns` to 10–20** in Settings or `studio_floor/config.json`.
   The default is 200 per agent, and every turn is a real model call.
 - **`studio start --no-agents`** serves the UI on its own, so you can explore it
   for free before a single token is spent.
@@ -80,7 +82,7 @@ in **[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
 
 ## Configure the team
 
-`studio.config.json` is the roster. An agent has an **id** (what the team calls
+`studio_floor/config.json` is the roster. An agent has an **id** (what the team calls
 it), a **provider** (which CLI to launch), and a **persona** (what it is for).
 The id and the provider are separate on purpose: five agents can run on one
 model wearing five different hats.
@@ -115,6 +117,18 @@ changes took effect immediately and which need a restart, and confines itself to
 fields that cannot change *which program runs* — see
 [docs/CONFIG.md](docs/CONFIG.md) for every key and why that line sits where it
 does.
+
+## Point it at a project
+
+The studio works on one directory at a time and keeps that project's memory
+inside it, at `studio_floor/state/`. The **Settings** tab switches directories:
+it checks what is there first, then stops the agents and restarts the studio
+pointed at the new one. Coming back to a project resumes it, because its log was
+waiting where it was left. There is a reset for when you want the opposite.
+
+Point it at a repository with no `PROJECT.md` and the team reads the code, works
+out what the project is, drafts the brief itself, and asks you to confirm before
+building anything.
 
 ## Add a provider
 
@@ -158,14 +172,14 @@ See [docs/ADAPTERS.md](docs/ADAPTERS.md).
 | tasks | the board, proposed → done, with full history per task |
 | decisions & debates | open disagreements and settled questions, with reasoning |
 | raw | the lowest-level observable activity, filterable by agent and kind |
-| settings | the roster and runner tunables, edited visually as a form |
+| settings | the working directory, the roster and runner tunables, as a form |
 
 Controls: pause, resume, stop, per-agent start/stop/nudge, set a priority, send
 a message to one agent or all, and answer any escalation.
 
 ## How it works
 
-**The log is the only truth.** Everything is one line in `.studio/events.jsonl`.
+**The log is the only truth.** Everything is one line in `studio_floor/state/events.jsonl`.
 Agents, tasks, decisions, debates, the timeline and the raw feed are all
 projections rebuilt from it on startup. Everything the interface shows actually
 happened, and a restart restores all of it. The server is the sole writer, so
@@ -184,7 +198,7 @@ happens, so an idle studio costs you nothing.
 **Every raw event is kept.** `raw.*` events carry the lowest level each CLI
 exposes: text, reasoning where the vendor emits it, tool calls, results, usage,
 errors. The full JSONL of every turn also lands in
-`.studio/transcripts/<agent>-turn-NNN.jsonl`. The studio reports exactly what the
+`studio_floor/state/transcripts/<agent>-turn-NNN.jsonl`. The studio reports exactly what the
 vendor exposed and stays silent about the rest — where Codex keeps its internal
 reasoning private, you see that it is private.
 

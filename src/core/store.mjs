@@ -165,7 +165,21 @@ export class Store extends EventEmitter {
       });
     }
 
-    for (const ev of parsed) {
+    for (const [i, ev] of parsed.entries()) {
+      // A line can be valid JSON and still not be an event.
+      //
+      // Everything downstream — isRaw, isTimeline, describe, every projection —
+      // assumes `kind` is a string. A record without one used to reach them and
+      // come back out as `Cannot read properties of undefined (reading
+      // 'startsWith')` with a stack trace and no indication of which line was at
+      // fault. This log is the team's entire memory; refusing to start is the
+      // right answer, but it has to be a refusal that says what is wrong.
+      if (!ev || typeof ev !== 'object' || typeof ev.kind !== 'string') {
+        throw new Error(
+          `event log corrupt: record ${i + 1} parses as JSON but is not an event `
+          + `(no "kind" field). Found: ${clipRecord(ev)}`,
+        );
+      }
       this.events.push(ev);
       this.seq = Math.max(this.seq, ev.seq || 0);
       this.#project(ev);
@@ -798,4 +812,12 @@ function summarise(changes = {}) {
   return Object.entries(changes)
     .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join(' ');
+}
+
+/** A record rendered short enough for an error message. */
+function clipRecord(v) {
+  let s;
+  try { s = JSON.stringify(v); } catch { s = String(v); }
+  s = String(s ?? 'nothing');
+  return s.length > 160 ? `${s.slice(0, 157)}…` : s;
 }

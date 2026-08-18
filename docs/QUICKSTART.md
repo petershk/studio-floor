@@ -280,18 +280,26 @@ From inside your project directory:
 studio init
 ```
 
-Two files appear:
+Two things appear:
 
-| File | What it is |
+| Path | What it is |
 | --- | --- |
 | `PROJECT.md` | what you want built. Every agent reads it on its first turn. |
-| `studio.config.json` | who is on the team, and their budget. |
+| `studio_floor/config.json` | who is on the team, and their budget. |
 
-A third thing appears once you start: `.studio/`, holding the event log — the
-team's entire memory. You do not need to gitignore it; the studio writes a
-`.gitignore` inside it on creation so git never sees it.
+Everything the studio generates lives in `studio_floor/`, so pointing the team at
+a repository adds exactly one directory to it. Once you start, the event log —
+the team's entire memory for this project — appears at `studio_floor/state/`.
+That subdirectory is gitignored for you; the config beside it is not, because it
+is worth committing.
 
-Both `PROJECT.md` and `studio.config.json` are yours. Committing them is usually
+**`studio init` is optional.** Point the studio at a directory with no brief and
+the team reads the code, works out what the project is, drafts `PROJECT.md`
+itself, and asks you to confirm it before building anything. Use `init` when you
+are starting something new and want the template; skip it when you are pointing
+the team at a repository that already exists.
+
+Both `PROJECT.md` and `studio_floor/config.json` are yours. Committing them is usually
 right — the team's brief belongs with the code it describes.
 
 Now make that first commit, so you have a point to return to:
@@ -414,7 +422,7 @@ You almost certainly want to change it, and there are two ways.
 running, so it happens in step 11. If you would rather not touch JSON at all,
 read the concepts below, then go on to step 11 and do the actual editing there.
 
-**The file** — `studio.config.json`. Same fields, and the panel writes this file,
+**The file** — `studio_floor/config.json`. Same fields, and the panel writes it,
 so the two are interchangeable. The file is also the *only* place a few things
 can be set; see "What the panel will not change" below.
 
@@ -524,7 +532,7 @@ Expected:
 ```
   studio doctor — /home/you/my-project
 
-  config     /home/you/my-project/studio.config.json
+  config     /home/you/my-project/studio_floor/config.json
   providers  codex, claude, grok
 
   ok    project brief PROJECT.md
@@ -605,7 +613,7 @@ save.
 
 ### Then stop it
 
-Press `Ctrl-C` in the terminal. Your changes are in `studio.config.json` and the
+Press `Ctrl-C` in the terminal. Your changes are in `studio_floor/config.json` and the
 next start picks them up.
 
 ---
@@ -664,13 +672,34 @@ reject, or a reply.
 `Ctrl-C` in the terminal. Stops the agents and the server cleanly.
 
 **You lose nothing.** The studio rebuilds its entire world — conversation, tasks,
-decisions, history — from `.studio/events.jsonl` next time you start. Stop
+decisions, history — from `studio_floor/state/events.jsonl` next time. Stop
 whenever you like.
+
+### Pointing the team at a different project
+
+The **Settings** tab has a *Working directory* section. Type or paste a path and
+it tells you what is there before you commit — whether it is a git repo, whether
+it has a brief, and how many recorded events are waiting. Then:
+
+- **Switch and restart** — stops the agents and restarts the studio in that
+  directory. If the team has worked there before, it picks up exactly where it
+  left off, because that project's event log lives inside that project.
+- **Switch and reset its history** — the same, but deletes that project's
+  recorded history first. Its code, brief and config are untouched.
+
+The studio works on one project at a time. Recently opened directories are
+listed as buttons, so switching back is one click.
+
+If the directory has no `PROJECT.md`, the team reads the code, works out what
+the project is, drafts one, and asks you to confirm it before building anything.
 
 ### Starting over
 
+The **Settings** tab has a *Switch and reset its history* button for this. From a
+shell:
+
 ```bash
-rm -rf .studio                        # PowerShell: Remove-Item -Recurse -Force .studio
+rm -rf studio_floor/state    # PowerShell: Remove-Item -Recurse -Force studio_floor/state
 ```
 
 Erases all studio history. Touches none of your project files. Use it when you

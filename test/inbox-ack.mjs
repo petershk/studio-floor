@@ -23,6 +23,19 @@ import path from 'node:path';
 // here does not freeze PROJECT_ROOT before the line below sets it.
 import { startStudioServer, studioUrl } from './harness.mjs';
 
+/**
+ * Where a studio rooted at `root` keeps its log, under either layout.
+ *
+ * Local rather than imported from paths.mjs: that module resolves against this
+ * process's own project root, and the studio under test is a child with a
+ * different one.
+ */
+const eventLogFor = (root) => (
+  fs.existsSync(path.join(root, 'studio_floor'))
+    ? path.join(root, 'studio_floor', 'state', 'events.jsonl')
+    : path.join(root, '.studio', 'events.jsonl')
+);
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-inbox-'));
 process.env.STUDIO_PROJECT_ROOT = root;
 
@@ -87,7 +100,7 @@ check('inbox bookkeeping is not in any agent inbox', !store.inbox('grok').items.
 check('inbox bookkeeping is not in the human timeline', !isTimeline('inbox.delivered') && !isTimeline('inbox.acked'));
 check(
   'inbox bookkeeping IS in the log on disk',
-  fs.readFileSync(path.join(root, '.studio', 'events.jsonl'), 'utf8').includes('"inbox.acked"'),
+  fs.readFileSync(eventLogFor(root), 'utf8').includes('"inbox.acked"'),
 );
 
 // ---- The human's interventions must actually arrive, with their words intact.

@@ -198,7 +198,12 @@ check('tasks survive a restart', Object.keys(store2.getState().tasks).length ===
 check('conversation survives a restart', store2.getState().messages.length === before.messages.length);
 
 // 10 — the log really is the source of truth ---------------------------------
-const logLines = fs.readFileSync(path.join(tmp, '.studio', 'events.jsonl'), 'utf8').trim().split('\n');
+// Ask paths.mjs where the log is rather than hardcoding a layout. This line
+// said '.studio/events.jsonl' and broke the moment the studio_floor layout
+// landed — a test asserting on the implementation's filing system instead of on
+// its behaviour.
+const { EVENT_LOG } = await import('../src/core/paths.mjs');
+const logLines = fs.readFileSync(EVENT_LOG, 'utf8').trim().split('\n');
 check('every event is on disk as one line of JSON', logLines.length === before.seq, `${logLines.length} lines vs seq ${before.seq}`);
 check('nothing in the log is unparseable', logLines.every((l) => { try { JSON.parse(l); return true; } catch { return false; } }));
 

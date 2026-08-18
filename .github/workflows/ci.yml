@@ -29,7 +29,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/proj"
           node bin/studio.mjs --version
           node bin/studio.mjs init --project "$RUNNER_TEMP/proj"
-          test -f "$RUNNER_TEMP/proj/studio.config.json"
+          test -f "$RUNNER_TEMP/proj/studio_floor/config.json"
           test -f "$RUNNER_TEMP/proj/PROJECT.md"
           # doctor exits non-zero when no provider CLI is installed, which is
           # the correct behaviour on a runner and not a test failure.

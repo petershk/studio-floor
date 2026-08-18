@@ -97,10 +97,30 @@ check('the first-turn prompt names the whole team', prompt.includes('architect, 
 check('the first-turn prompt says how many agents there are', prompt.includes('one of 4 autonomous agents'));
 check('the agent is told its own studio id', prompt.includes('studio id `breaker`'));
 check('the persona reaches the prompt', prompt.includes('adversarial thinker'));
+// A missing brief starts a discovery mission, not a guess.
+//
+// This used to assert only that the agent was told to stop and ask. Pointing the
+// studio at an existing repository made that the common case rather than an
+// error, so the prompt now sends the team to read the directory and draft a
+// brief — but the safety property is unchanged and still asserted below: an
+// inferred brief must be confirmed by the human before anyone builds on it.
 check(
-  'a missing brief is reported rather than invented',
-  prompt.includes('no PROJECT.md in this project'),
-  'the prompt must refuse to guess the project',
+  'a missing brief is announced, not papered over',
+  prompt.includes(`THERE IS NO ${config.project.brief} — YOUR FIRST JOB IS TO WRITE ONE`),
+  'the prompt must say the brief is missing',
+);
+check(
+  'the agent is told to read the directory first',
+  prompt.includes('git log') && prompt.includes('Read the directory before you conclude anything'),
+);
+check(
+  'and to record what it could not work out',
+  prompt.includes('what you could NOT determine from the directory'),
+);
+check(
+  'an inferred brief must be confirmed before anyone builds on it',
+  prompt.includes('Do not start') && prompt.includes('requesting-input'),
+  'the prompt must refuse to let agents implement against a brief they wrote themselves',
 );
 
 fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# A real brief\n\nBuild the thing.\n');

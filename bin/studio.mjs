@@ -81,7 +81,7 @@ process.argv = [process.argv[0], process.argv[1], ...argv.slice(1)];
 switch (command) {
   case 'start':
     process.argv = [process.argv[0], process.argv[1], ...argv.slice(1)];
-    await load(SRC, 'bin', 'start.mjs');
+    await load(SRC, 'bin', 'supervise.mjs');
     break;
 
   case 'init':
@@ -122,7 +122,8 @@ function usage() {
   Studio Floor — several AI coding agents working as a team on one project,
   with a human watching and directing through a browser.
 
-    studio init                 set up the current directory as a studio project
+    studio init                 write a starter brief and config here (optional —
+                                the studio can also discover an existing project)
     studio start                run the server and the configured agents
     studio start --no-agents    run the server only
     studio start --only claude  run one agent

@@ -493,3 +493,19 @@ main {
 
 .set-readonly { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .set-readonly .muted { display: inline-block; min-width: 70px; }
+
+/* the working-directory block */
+.set-current {
+  border: 1px solid var(--line); border-radius: 5px; padding: 8px 11px;
+  margin-bottom: 12px; background: var(--panel);
+}
+.set-current .mono { font-family: var(--mono, monospace); font-size: 12px; margin-bottom: 3px; }
+.set-current .muted { font-size: 11px; line-height: 1.5; }
+.set-probe {
+  font-size: 11px; padding: 6px 9px; border-radius: 4px; margin: -4px 0 10px;
+  border: 1px solid var(--line); line-height: 1.5;
+}
+.set-probe.good { border-color: #3f7d4f; background: #14251a; }
+.set-probe.bad { border-color: #a5762f; background: #2a2113; color: #e0a06a; }
+.set-recent { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.set-recent .muted { font-size: 11px; margin-right: 2px; }

@@ -4,7 +4,7 @@
 src/
   core/
     paths.mjs      where everything lives; the only place that knows the layout
-    config.mjs     read and normalise studio.config.json
+    config.mjs     read and normalise studio_floor/config.json
     roster.mjs     the resolved team, loaded once per process
     events.mjs     the event vocabulary and one-line renderer
     store.mjs      the append-only log and every projection of it
@@ -24,7 +24,7 @@ src/
 
 ## The log is the only truth
 
-Everything that happens is one line in `.studio/events.jsonl`:
+Everything that happens is one line in `studio_floor/state/events.jsonl`:
 
 ```json
 {"seq":41,"ts":"…","kind":"task.updated","agent":"builder","data":{…}}
@@ -137,7 +137,7 @@ moment. Truncation says plainly what was cut and how to get the rest.
 
 ## Configuration is a write API
 
-The settings panel edits `studio.config.json` over HTTP, which makes it a write
+The settings panel edits `studio_floor/config.json` over HTTP, making it a write
 API to the thing that decides which programs this machine runs. Three properties
 keep that safe, and all three are load-bearing.
 

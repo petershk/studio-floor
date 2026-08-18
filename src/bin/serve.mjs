@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * Launch the studio: the event log, the server the human watches, and the
- * agents themselves.
+ * One studio: the event log, the server the human watches, and the agents.
+ *
+ * Started by src/bin/supervise.mjs rather than directly, because this process is
+ * bound to one project — PROJECT_ROOT is resolved at import and the store
+ * replays that project's log on the way up. Switching projects means replacing
+ * this process, which is the supervisor's job.
  *
  *   studio start                    server + every configured agent
  *   studio start --no-agents        server only; start agents from the UI
@@ -12,7 +16,7 @@ import { Store } from '../core/store.mjs';
 import { createHttpServer } from '../server/server.mjs';
 import { Runner, loadConfig } from '../agents/runner.mjs';
 import { loadUserAdapters, providers } from '../agents/adapters/index.mjs';
-import { PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE } from '../core/paths.mjs';
+import { PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
 import { AGENT_IDS, AGENTS, CONFIG, PROJECT } from '../core/roster.mjs';
 
 const argv = process.argv.slice(2);
@@ -64,7 +68,7 @@ console.log(`
   Studio Floor — ${PROJECT.name || 'untitled project'}
   ${'-'.repeat(Math.max(14, (PROJECT.name || 'untitled project').length + 15))}
   project    ${PROJECT_ROOT}
-  config     ${CONFIG_FILE}
+  config     ${CONFIG_FILE}${IS_LEGACY_LAYOUT ? '   (legacy layout)' : ''}
   state      ${STATE_DIR}
   watch      http://${watchHost}:${PORT}
   providers  ${providers().join(', ')}

@@ -48,9 +48,14 @@ so a change to what the agents are allowed to do shows up in the timeline.
 
 ---
 
-`studio.config.json` in the project directory, or wherever `STUDIO_CONFIG`
+`studio_floor/config.json` inside the project, or wherever `STUDIO_CONFIG`
 points. Written by `studio init`; every key has a default, so a studio with no
-config is a valid studio.
+config at all is a valid studio.
+
+A project set up before this layout — with `studio.config.json` at the root and
+`.studio/` for state — keeps working exactly as it did. The studio uses whichever
+layout it finds and never migrates one to the other on its own, because doing so
+silently would orphan that project's event log.
 
 ```json
 {
