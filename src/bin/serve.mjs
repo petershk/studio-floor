@@ -52,7 +52,7 @@ const TOKEN_HINT = token
 
 const store = new Store();
 const runner = new Runner(store, config);
-createHttpServer(store, runner);
+await bound(createHttpServer(store, runner));
 
 // Presence is runtime-derived. A prior hard stop may have left the final
 // persisted state as working/waiting even though no process survived.
@@ -121,6 +121,40 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
       store.close();
       process.exit(0);
     }, 500);
+  });
+}
+
+/**
+ * Wait until the port is actually ours.
+ *
+ * `listen` reports failure asynchronously, so without this the studio printed
+ * its banner, opened a browser tab and only then died on an unhandled 'error'
+ * event — a raw Node stack under a message that had just said "Open
+ * http://…:4173". The human saw a confident launch and a tab that sat on
+ * "connecting…" forever, with the reason scrolled off under the banner.
+ *
+ * Nothing below this line runs until the socket is bound, so the banner is a
+ * statement of fact rather than an intention.
+ */
+function bound(server) {
+  return new Promise((resolve) => {
+    server.once('listening', resolve);
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(
+          `\n  studio: ${HOST}:${PORT} is already in use.\n\n`
+          + '          Another studio is probably still running — open the URL to check,\n'
+          + '          or stop it and start again. A studio that was just stopped can hold\n'
+          + '          the port for a moment longer than it holds the terminal.\n\n'
+          + '          STUDIO_PORT=4174 studio start   runs a second one alongside it.\n',
+        );
+      } else if (err.code === 'EACCES') {
+        console.error(`\n  studio: not allowed to bind ${HOST}:${PORT} — try a port above 1024.\n`);
+      } else {
+        console.error(`\n  studio: could not start the server — ${err.message}\n`);
+      }
+      process.exit(1);
+    });
   });
 }
 
