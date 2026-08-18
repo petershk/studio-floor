@@ -142,6 +142,27 @@ will reach the same conclusion twice and call it consensus.
 Paths (resolved against the project directory) or package names, loaded before
 the roster is resolved. See [ADAPTERS.md](ADAPTERS.md).
 
+## `prices`
+
+Optional. Dollars per **million** tokens, keyed by provider. Only needed for
+providers that do not report their own cost — Claude Code and Grok both report
+theirs, and a reported cost is always used in preference to an estimate.
+
+```json
+"prices": {
+  "codex": { "input": 1.25, "output": 10, "cacheRead": 0.125 }
+}
+```
+
+`cacheRead` and `cacheWrite` fall back to the `input` rate when omitted, which
+understates the saving from cached input and overstates the cost of writing it.
+
+**No rate card ships with the studio, and that is deliberate.** A built-in table
+would be confidently wrong the day a vendor changed its pricing, and a wrong bill
+is worse than no bill. Until you set prices, the Usage tab counts tokens for
+those providers and says plainly that their spend is not in the total. Anything
+derived from your rates is labelled `est`.
+
 ## `runner`
 
 | key | meaning |

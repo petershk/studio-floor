@@ -117,7 +117,17 @@ export function loadConfig(file = CONFIG_FILE) {
 
 export function normaliseConfig(raw = {}) {
   const legacy = liftLegacy(raw);
-  const cfg = defaultConfig();
+
+  // Start from what the file said, not from a blank slate.
+  //
+  // This used to build a fresh defaultConfig() and copy across only the four
+  // keys it knew about, so every other top-level key was silently discarded.
+  // That killed `adapters` — the whole pluggable-provider feature was dead on
+  // arrival because CONFIG.adapters was always undefined — and then killed
+  // `prices` the same way the moment token costing was added. Whitelisting the
+  // next key would only postpone the third occurrence. Unknown keys now survive,
+  // and the sections below overwrite the ones this module actually owns.
+  const cfg = { ...legacy, ...defaultConfig() };
 
   cfg.project = { ...cfg.project, ...(legacy.project || {}) };
   cfg.runner = { ...cfg.runner, ...(legacy.runner || {}) };

@@ -47,7 +47,14 @@ export default {
       return [{ kind: 'session', data: { sessionId: obj.thread_id || obj.session_id } }];
     }
     if (t === 'turn.started') return [];
-    if (t === 'turn.completed') return [{ kind: 'raw.usage', data: { usage: obj.usage || {} } }];
+    if (t === 'turn.completed') {
+      // Cumulative for the whole thread, not for this turn: the figure climbs
+      // across a resumed session and resets when a new one starts. Summing these
+      // as if they were per-turn overcounts by an order of magnitude — measured
+      // at 10.7x against a real 24,000-event log — so the scope is recorded and
+      // the store takes deltas.
+      return [{ kind: 'raw.usage', data: { usage: obj.usage || {}, scope: 'session' } }];
+    }
     if (t === 'turn.failed') {
       return [{ kind: 'raw.error', data: { text: str(obj.error?.message || obj.error) } }];
     }

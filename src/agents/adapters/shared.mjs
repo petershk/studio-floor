@@ -44,7 +44,13 @@ export function parseAnthropicStream(obj) {
         if (files.length) out.push({ kind: 'files', data: { action: 'changed', files } });
       }
     }
-    if (obj.message?.usage) out.push({ kind: 'raw.usage', data: { usage: obj.message.usage } });
+    // One assistant message, not the turn. These arrive many times per turn and
+    // their cache figures are running values, so they are recorded for the raw
+    // feed and deliberately excluded from any total. The `result` event below
+    // carries the authoritative numbers.
+    if (obj.message?.usage) {
+      out.push({ kind: 'raw.usage', data: { usage: obj.message.usage, scope: 'message' } });
+    }
     return out;
   }
 
@@ -66,9 +72,16 @@ export function parseAnthropicStream(obj) {
 
   if (t === 'result') {
     if (obj.is_error) out.push({ kind: 'raw.error', data: { text: clip(obj.result || obj.error || 'turn failed') } });
+    // The turn's real totals, and the provider's own costing of it.
     out.push({
       kind: 'raw.usage',
-      data: { usage: obj.usage || {}, costUsd: obj.total_cost_usd, durationMs: obj.duration_ms, numTurns: obj.num_turns },
+      data: {
+        usage: obj.usage || {},
+        costUsd: obj.total_cost_usd,
+        durationMs: obj.duration_ms,
+        numTurns: obj.num_turns,
+        scope: 'turn',
+      },
     });
     out.push({ kind: 'final', data: { text: clip(obj.result || '') } });
     return out;

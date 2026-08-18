@@ -9,6 +9,7 @@
 import { isHumanDirected } from './message-addressing.js';
 import { refillKeepingPlace } from './scroll-follow.js';
 import { refreshSettings } from './settings.js';
+import { renderUsage } from './usage.js';
 
 const $ = (id) => document.getElementById(id);
 /**
@@ -157,6 +158,7 @@ function scheduleRefresh() {
 
 function renderAll() {
   renderGlance();
+  renderUsage(state);
   renderAgents();
   renderAttention();
   renderConversation();
@@ -483,6 +485,7 @@ function wireControls() {
       $(`pane-${t.dataset.tab}`).classList.add('active');
       if (t.dataset.tab === 'raw') renderRaw();
       if (t.dataset.tab === 'settings') refreshSettings();
+      if (t.dataset.tab === 'usage') renderUsage(state);
     };
   });
 

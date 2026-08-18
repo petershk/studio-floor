@@ -136,6 +136,29 @@ for (const field of AGENT_PROTECTED_OPTIONS) {
   ok('adding a new agent on a missing provider is refused', errors.some((e) => e.includes('gemini')));
 }
 
+// Unknown top-level keys must survive normalisation.
+//
+// normaliseConfig used to build a fresh defaultConfig() and copy across only the
+// four keys it knew about. That silently killed `adapters` (the whole pluggable
+// provider feature was dead: CONFIG.adapters was always undefined) and then
+// killed `prices` the same way when token costing arrived. This asserts the
+// general property, not the two specific keys, so the third occurrence fails
+// here instead of shipping.
+{
+  const { normaliseConfig: nc } = await import('../src/core/config.mjs');
+  const cfg = nc({
+    agents: [{ id: 'a', provider: 'claude' }],
+    prices: { codex: { input: 1.25 } },
+    adapters: ['./x.mjs'],
+    somethingNobodyHasWrittenYet: { deep: true },
+  });
+  ok('prices survive normalisation', cfg.prices?.codex?.input === 1.25, JSON.stringify(cfg.prices));
+  ok('an unrecognised top-level key survives too',
+    cfg.somethingNobodyHasWrittenYet?.deep === true, Object.keys(cfg).join(','));
+  ok('and the keys config owns are still normalised',
+    cfg.runner.cooldownMs === 4000 && cfg.agents[0].label === 'A');
+}
+
 // The `adapters` key must survive loading, or custom providers never register.
 {
   const { normaliseConfig: nc } = await import('../src/core/config.mjs');

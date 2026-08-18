@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
-import { AGENTS, SERVER as SERVER_CONFIG, PROJECT } from '../core/roster.mjs';
+import { AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG } from '../core/roster.mjs';
 import { providers } from '../agents/adapters/index.mjs';
 import {
   readRawConfig, applyConfigPatch, saveRawConfig, restartRequiredFor, normaliseConfig,
@@ -102,6 +102,9 @@ export function createHttpServer(store, runner) {
           // in configured order, whatever their ids and however many there are.
           roster: AGENTS.map((a) => ({ id: a.id, label: a.label, provider: a.provider })),
           project: { name: PROJECT.name, goal: PROJECT.goal, brief: PROJECT.brief },
+          // The usage view forecasts against the turn budget, so it needs to
+          // know what the budget is.
+          runner: { maxTurns: RUNNER_CONFIG.maxTurns },
         });
       }
 

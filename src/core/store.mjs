@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { EVENT_LOG, STATE_DIR, ensureStateDir } from './paths.mjs';
 import { AGENT_IDS, describe, isBookkeeping, isRaw, isTimeline } from './events.mjs';
+import { UsageLedger } from './usage.mjs';
+import { CONFIG, getAgent } from './roster.mjs';
 
 /**
  * The single source of truth.
@@ -26,6 +28,14 @@ export class Store extends EventEmitter {
     // failing closed into redelivery rather than into loss. See markDelivered.
     this.shown = new Map();
     this.state = emptyState();
+    // Token accounting is a projection like any other, rebuilt from the log.
+    // Prices are the project's own: no rate card ships with the studio, because
+    // an invented default would be confidently wrong the day a vendor changes
+    // its pricing, and a wrong bill is worse than no bill.
+    this.usage = new UsageLedger({
+      prices: (CONFIG.prices && typeof CONFIG.prices === 'object') ? CONFIG.prices : {},
+      providerOf: (id) => getAgent(id)?.provider || null,
+    });
     const recovered = this.#load();
     this.fd = fs.openSync(EVENT_LOG, 'a');
     for (const rec of recovered) {
@@ -256,6 +266,7 @@ export class Store extends EventEmitter {
   getState() {
     return {
       ...this.state,
+      usage: this.usage.snapshot(),
       seq: this.seq,
       now: new Date().toISOString(),
     };
@@ -421,6 +432,11 @@ export class Store extends EventEmitter {
     const s = this.state;
     const d = ev.data || {};
     const agentId = ev.agent;
+
+    // Before the switch below: the ledger needs raw.turn.start (for the turn
+    // number and session id) as well as raw.usage, and turn.start is handled
+    // separately down there.
+    this.usage.observe(ev);
 
     if (agentId && !s.agents[agentId]) s.agents[agentId] = newAgent(agentId);
     if (agentId) s.agents[agentId].lastSeen = ev.ts;
@@ -728,8 +744,13 @@ export class Store extends EventEmitter {
         break;
       }
       case 'raw.usage': {
+        // The ledger decides what this event means -- a turn total, one message
+        // of many, or a cumulative session counter -- because the three
+        // providers report all three shapes and adding them together overstates
+        // Codex by an order of magnitude. See core/usage.mjs.
         const a = s.agents[agentId];
         a.usage = { ...(a.usage || {}), ...(d.usage || {}) };
+        a.tokens = this.usage.totalsFor(agentId);
         break;
       }
       case 'raw.tool.call': {
