@@ -126,6 +126,7 @@ function usage() {
                                 the studio can also discover an existing project)
     studio start                run the server and the configured agents
     studio start --no-agents    run the server only
+    studio start --no-open      do not open a browser
     studio start --only claude  run one agent
     studio doctor               check the configured provider CLIs are installed
     studio agent <cmd>          the in-turn CLI agents use to talk to the studio

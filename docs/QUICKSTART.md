@@ -565,7 +565,16 @@ studio start --no-agents
 This starts the web server with **no agents running**, so no tokens are spent
 and nothing touches your files.
 
-Open **http://127.0.0.1:4173**.
+It prints the URL and opens your browser for you:
+
+```
+  ▸  Open http://127.0.0.1:4173
+     opening your browser… (studio start --no-open to skip)
+```
+
+Add `--no-open` if you would rather it did not — over SSH, or when you already
+have the tab. Restarts caused by switching project or updating never open a
+second tab; the one you have reconnects on its own.
 
 ### Learn the layout
 

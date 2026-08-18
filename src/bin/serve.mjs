@@ -12,6 +12,7 @@
  *   studio start --only claude      server + one agent
  *   studio start --project ../game  operate on a different directory
  */
+import * as childProcess from 'node:child_process';
 import { Store } from '../core/store.mjs';
 import { createHttpServer } from '../server/server.mjs';
 import { Runner, loadConfig } from '../agents/runner.mjs';
@@ -44,6 +45,11 @@ if (only) {
   config.agents = wanted;
 }
 
+const token = process.env.STUDIO_TOKEN || CONFIG.server.token || null;
+const TOKEN_HINT = token
+  ? '     (this studio needs its token: append ?token=… to that URL)\n'
+  : '';
+
 const store = new Store();
 const runner = new Runner(store, config);
 createHttpServer(store, runner);
@@ -64,16 +70,20 @@ store.append('studio.started', null, {
 });
 
 const watchHost = HOST === '0.0.0.0' ? '<this-host>' : HOST;
+const watchUrl = `http://${watchHost}:${PORT}`;
+
 console.log(`
   Studio Floor — ${PROJECT.name || 'untitled project'}
   ${'-'.repeat(Math.max(14, (PROJECT.name || 'untitled project').length + 15))}
   project    ${PROJECT_ROOT}
   config     ${CONFIG_FILE}${IS_LEGACY_LAYOUT ? '   (legacy layout)' : ''}
   state      ${STATE_DIR}
-  watch      http://${watchHost}:${PORT}
   providers  ${providers().join(', ')}
   roster     ${AGENTS.map((a) => `${a.id}(${a.provider})`).join(', ')}
   running    ${noAgents ? '(none — start them from the web UI)' : config.agents.join(', ')}
+
+  ▸  Open ${watchUrl}
+${TOKEN_HINT}     Ctrl-C to stop. Nothing is lost — the studio rebuilds from its log.
 `);
 
 if (HOST !== '127.0.0.1' && HOST !== 'localhost' && !(process.env.STUDIO_TOKEN || CONFIG.server.token)) {
@@ -82,6 +92,17 @@ if (HOST !== '127.0.0.1' && HOST !== 'localhost' && !(process.env.STUDIO_TOKEN |
     + '  Anyone who can reach it can direct agents that run shell commands as you.\n'
     + '  Set STUDIO_TOKEN before exposing it.\n',
   );
+}
+
+// Open a browser, unless told not to and unless this is the supervisor putting
+// us back after a project switch or an update — those already have a tab open,
+// and stacking a new one on every restart would be a nuisture rather than a
+// convenience.
+if (!argv.includes('--no-open') && !process.env.STUDIO_RESTARTED && HOST !== '0.0.0.0') {
+  console.log('     opening your browser… (studio start --no-open to skip)');
+  openInBrowser(token ? `${watchUrl}/?token=${encodeURIComponent(token)}` : watchUrl);
+} else if (process.env.STUDIO_RESTARTED) {
+  console.log('     your existing browser tab will reconnect on its own.');
 }
 
 if (!noAgents) runner.startAll();
@@ -101,4 +122,29 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
       process.exit(0);
     }, 500);
   });
+}
+
+/**
+ * Open the studio in the default browser.
+ *
+ * Best-effort and deliberately silent on failure: over SSH, in a container, or
+ * on a headless box there is no browser to open, and that is not a reason to
+ * make the studio look like it went wrong. The URL is printed either way, which
+ * is the part that actually matters.
+ */
+function openInBrowser(url) {
+  const { spawn } = childProcess;
+  try {
+    const [cmd, args] = process.platform === 'win32'
+      // `start` is a cmd builtin, and its first quoted argument is the window
+      // title — omitting the empty one makes cmd treat the URL as the title and
+      // open nothing.
+      ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true });
+    child.on('error', () => { /* no browser here; the printed URL stands */ });
+    child.unref();
+  } catch { /* same */ }
 }

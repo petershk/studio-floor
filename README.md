@@ -62,8 +62,9 @@ studio doctor
 studio start
 ```
 
-Open **http://127.0.0.1:4173**. `Ctrl-C` stops everything, and the next start
-rebuilds the studio's entire world from the log — conversation, tasks, decisions
+It prints the URL and opens **http://127.0.0.1:4173** for you (`--no-open` to
+skip). `Ctrl-C` stops everything, and the next start rebuilds the studio's
+entire world from the log — conversation, tasks, decisions
 and all.
 
 Three things worth knowing before your first run:

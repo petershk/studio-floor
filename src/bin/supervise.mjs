@@ -31,6 +31,7 @@ const argv = process.argv.slice(2);
 let projectRoot = path.resolve(process.env.STUDIO_PROJECT_ROOT || process.cwd());
 let child = null;
 let shuttingDown = false;
+let started = false;
 
 ensureUserDir();
 
@@ -77,6 +78,11 @@ async function run() {
 function once(root) {
   return new Promise((resolve) => {
     const env = { ...process.env, STUDIO_PROJECT_ROOT: root };
+    // Only the first child opens a browser. A project switch or a self-update
+    // comes back into a tab that is already sitting there waiting to reconnect,
+    // so opening another one on every restart would pile them up.
+    if (started) env.STUDIO_RESTARTED = '1';
+    started = true;
     // A switch must not inherit the previous project's overrides, or every
     // project after the first would quietly share one config and one event log.
     delete env.STUDIO_CONFIG;
