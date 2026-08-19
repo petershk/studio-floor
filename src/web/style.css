@@ -620,3 +620,23 @@ main {
   font: 11px/1.45 var(--mono);
   white-space: pre-wrap;
 }
+
+/* How an agent authenticates: a status line, and a key box that only ever
+   accepts a value and never shows one. */
+.set-auth { display: flex; flex-direction: column; gap: 6px; }
+.set-key-actions { display: flex; gap: 6px; margin-top: 4px; }
+.pill.ok { border-color: #3f7d4f; color: var(--good); }
+
+/* The fix, rather than the diagnosis. A command you can select and paste. */
+.set-steps { margin: 8px 0 6px; padding-left: 20px; }
+.set-steps li { margin-bottom: 6px; }
+.set-cmd {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 3px 6px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 11px/1.5 var(--mono);
+  user-select: all;
+}

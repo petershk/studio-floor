@@ -23,6 +23,7 @@ process.env.STUDIO_STATE_DIR = path.join(tmp, 'state');
 
 const {
   putSecret, getSecret, listSecrets, removeSecret, secretNameFor, secretKey, NO_KEY,
+  generateKey, keySource, storageHint, KEY_FILE,
 } = await import('../src/core/secrets.mjs');
 const { resolveAuth, AUTH_MODES } = await import('../src/core/auth.mjs');
 
@@ -47,7 +48,9 @@ check('and an empty one is no passphrase', secretKey({ STUDIO_SECRET_KEY: '   ' 
 let refused = null;
 try { putSecret('x', 'y', { file, env: {} }); } catch (e) { refused = e.message; }
 check('storing without a passphrase is refused, not done in the clear', refused === NO_KEY, refused || 'stored anyway');
-check('and the refusal says how to fix it', /STUDIO_SECRET_KEY/.test(refused || '') && /environment variable/.test(refused || ''));
+check('and the refusal offers both ways out, weaker one labelled',
+  /STUDIO_SECRET_KEY/.test(refused || '') && /generate one/.test(refused || '') && /same disk/.test(refused || ''),
+  refused || '');
 
 putSecret('agent:claude:apiKey', 'sk-ant-secret', { file, env: withKey });
 check('a stored secret comes back', getSecret('agent:claude:apiKey', { file, env: withKey }) === 'sk-ant-secret');
@@ -84,6 +87,38 @@ check('a torn file reads as empty rather than stopping the studio',
 
 check('the name for an agent is stable and namespaced',
   secretNameFor('claude') === 'agent:claude:apiKey');
+
+// A person using a studio they did not deploy has no shell to export a variable
+// in. Refusing them outright gets the key pasted somewhere genuinely
+// unprotected instead, so the studio can generate a passphrase — never
+// silently, and never without saying what it costs.
+const keyFile = path.join(tmp, 'generated.key');
+check('with nothing set, there is no passphrase at all', keySource({}, { file: keyFile }) === 'none');
+
+generateKey({ file: keyFile });
+check('a generated passphrase is usable', secretKey({}, { file: keyFile }).length === 64);
+check('and is reported as the studio own, not the operator supplied one',
+  keySource({}, { file: keyFile }) === 'studio');
+if (process.platform !== 'win32') {
+  check('and is not readable by anyone else', (fs.statSync(keyFile).mode & 0o777) === 0o600);
+} else {
+  check('and is not readable by anyone else', true, 'skipped: POSIX modes are not enforced on Windows');
+}
+
+// The operator's own always wins, so a deployment that supplies one is never
+// quietly downgraded to the weaker arrangement by an old generated file.
+check('an operator-supplied passphrase beats a generated one',
+  keySource({ STUDIO_SECRET_KEY: 'from-the-operator' }, { file: keyFile }) === 'environment');
+
+// The two are not equally good, and the difference has to reach the human who
+// is choosing. This is the assertion that stops the panel implying the
+// stronger one while doing the weaker one.
+const weak = storageHint({ env: {} });
+const strong = storageHint({ env: { STUDIO_SECRET_KEY: 'from-the-operator' } });
+check('the weaker arrangement admits what it does not protect',
+  /same disk/.test(weak.protects) || weak.keySource === 'none', weak.protects);
+check('and the stronger one says a backup does not contain the keys',
+  /backup or/.test(strong.protects) && strong.keySource === 'environment', strong.protects);
 
 console.log('\n which mode an agent is in');
 

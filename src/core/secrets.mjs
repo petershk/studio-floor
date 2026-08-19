@@ -26,29 +26,88 @@ import { SECRETS_FILE } from './paths.mjs';
  * One deliberate deviation. n8n ships a *default* encryption key used when the
  * operator sets none, which means an instance deployed without reading the docs
  * is encrypted with a value published on the internet — the thing every
- * hardening guide for it now warns about. This refuses to store a secret at all
- * without `STUDIO_SECRET_KEY`, and says so. Friction lands on cloud operators,
- * who are already generating STUDIO_TOKEN one line earlier.
+ * hardening guide for it now warns about. Nothing here is ever encrypted with a
+ * value this project chose.
  *
- * What this buys, precisely: a leaked backup, volume snapshot or stolen disk
- * does not hand over the keys. It does nothing against someone who has the
- * running container, because the key is in its environment. That is true of all
- * four tools above. It is worth doing because it is cheap, not because it makes
- * the box safe.
+ * There are therefore two passphrases, and they are not equally good:
+ *
+ *   environment  STUDIO_SECRET_KEY, supplied by whoever runs the studio. The
+ *                encrypted file is then worthless on its own, so a leaked
+ *                backup, snapshot or disk gives up nothing.
+ *   studio       generated on request and kept beside the keys it protects.
+ *                Defends a stolen `secrets.json`; does not defend a copy of the
+ *                whole directory.
+ *
+ * The second exists because refusing it is worse. Somebody using a studio they
+ * did not deploy has no shell to export a variable in, and a tool that answers
+ * "go and get one" gets a key pasted somewhere genuinely unprotected instead.
+ * It is offered, it is never the silent default, and every place that offers it
+ * says which of the two is in use.
+ *
+ * Neither does anything against someone who has the running container, since
+ * the passphrase is readable there either way. That is true of all four tools
+ * above. It is worth doing because it is cheap, not because it makes the box
+ * safe.
  */
 
 const VERSION = 1;
 const ALGO = 'aes-256-gcm';
 
-/** The passphrase, or null when the operator has not set one. */
-export function secretKey(env = process.env) {
+/** Where a studio-generated passphrase lives, when the operator supplied none. */
+export const KEY_FILE = path.join(path.dirname(SECRETS_FILE), 'secret.key');
+
+/**
+ * The passphrase: the operator's if they set one, otherwise this studio's own.
+ *
+ * The two are not equally good and the panel says so. An operator-supplied
+ * passphrase lives in the environment, so the encrypted file is worthless on
+ * its own — a leaked backup, snapshot or disk gives up nothing. A generated one
+ * lives on the same disk it protects, so it defends a stolen `secrets.json`
+ * and not a copy of the whole directory.
+ *
+ * The generated case exists because the alternative is worse. Somebody using a
+ * studio they did not deploy has no shell to export a variable in, and telling
+ * them to go and get one means they either give up or paste the key somewhere
+ * genuinely unprotected. This is the smaller of two evils, chosen deliberately
+ * and described accurately wherever it is offered.
+ */
+export function secretKey(env = process.env, { file = KEY_FILE } = {}) {
   const raw = env.STUDIO_SECRET_KEY;
-  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  try {
+    const own = fs.readFileSync(file, 'utf8').trim();
+    return own || null;
+  } catch {
+    return null;
+  }
 }
 
-export const NO_KEY = 'no STUDIO_SECRET_KEY is set, so this studio will not store a secret. '
-  + 'Set one (openssl rand -hex 32) and restart, or name an environment variable instead. '
-  + 'Keep it with your backups: without it, stored keys cannot be read back.';
+/** Where the passphrase in use came from, for anything that has to explain itself. */
+export function keySource(env = process.env, { file = KEY_FILE } = {}) {
+  if (typeof env.STUDIO_SECRET_KEY === 'string' && env.STUDIO_SECRET_KEY.trim()) return 'environment';
+  try {
+    return fs.readFileSync(file, 'utf8').trim() ? 'studio' : 'none';
+  } catch {
+    return 'none';
+  }
+}
+
+/**
+ * Generate a passphrase and keep it. Only ever called because a human asked, so
+ * that nothing is silently encrypted with a key sitting next to it.
+ */
+export function generateKey({ file = KEY_FILE } = {}) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const value = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(file, `${value}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  return { file, source: 'studio' };
+}
+
+export const NO_KEY = 'this studio has no passphrase to encrypt a stored key with, and will not '
+  + 'write one in the clear. Set STUDIO_SECRET_KEY where it runs, or let it generate one for '
+  + 'itself — which is weaker, because that passphrase then sits on the same disk as the keys '
+  + 'it protects.';
 
 function read(file) {
   try {
@@ -149,6 +208,62 @@ export function removeSecret(name, { file = SECRETS_FILE } = {}) {
   delete data.entries[name];
   write(file, data);
   return { name, set: false };
+}
+
+/**
+ * How to turn "this studio will not store a key" into a studio that will.
+ *
+ * The first version of this said "set one where the studio runs and restart",
+ * which names the problem and leaves the fix as an exercise — and the person
+ * reading it is standing in a browser, possibly nowhere near the machine. So it
+ * hands over the actual commands, and the commands differ: a container reads a
+ * file beside its compose config, a laptop reads the shell.
+ *
+ * The generator is node rather than openssl because this project already
+ * requires node and Windows does not ship openssl.
+ */
+export function storageHint({ env = process.env, inContainer = detectContainer() } = {}) {
+  const source = keySource(env);
+  const generate = 'node -e "console.log(require(\'node:crypto\').randomBytes(32).toString(\'hex\'))"';
+  return {
+    canStore: Boolean(secretKey(env)),
+    // Which passphrase is protecting stored keys, so the panel can describe the
+    // protection accurately instead of implying the stronger one.
+    keySource: source,
+    protects: source === 'environment'
+      ? 'Stored keys are encrypted with STUDIO_SECRET_KEY from the environment, so a backup or '
+        + 'snapshot of this disk does not contain them.'
+      : source === 'studio'
+        ? 'Stored keys are encrypted with a passphrase this studio generated and keeps on the '
+          + 'same disk. That protects the key file on its own, not a copy of the whole directory. '
+          + 'Set STUDIO_SECRET_KEY in the environment for the stronger version.'
+        : '',
+    inContainer,
+    generate,
+    steps: inContainer
+      ? [
+        `Generate one:  ${generate}`,
+        'Put it in .env beside docker-compose.yml as STUDIO_SECRET_KEY=…',
+        'Then: docker compose up -d',
+      ]
+      : [
+        `Generate one:  ${generate}`,
+        'Start the studio with it: STUDIO_SECRET_KEY=… studio start',
+        'On Windows PowerShell: $env:STUDIO_SECRET_KEY="…"; studio start',
+      ],
+    keep: 'Keep it with your backups. Without it, keys stored here cannot be read back — '
+      + 'they are encrypted with it.',
+  };
+}
+
+/** Are we inside a container? Changes where the answer goes, not what it is. */
+function detectContainer() {
+  if (process.env.STUDIO_IN_CONTAINER) return true;
+  try {
+    return fs.existsSync('/.dockerenv');
+  } catch {
+    return false;
+  }
 }
 
 /** The name a given agent's key is filed under. */

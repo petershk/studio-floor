@@ -312,6 +312,99 @@ function updateBlock() {
     </section>`;
 }
 
+/** Write-only: a key goes up, and nothing about it ever comes back. */
+async function postKey(agent, value, extra = {}) {
+  try {
+    return await (await fetch('/api/secrets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent, value, ...extra }),
+    })).json();
+  } catch {
+    return { ok: false, error: 'the studio did not answer' };
+  }
+}
+
+/**
+ * Which entry in the backend list this agent is.
+ *
+ * The config stores the pair — which CLI, and which endpoint it is pointed at —
+ * and the panel shows one choice. A preset names itself; anything else is the
+ * provider on its own.
+ */
+function backendIdOf(a) {
+  if (a.preset) return `preset:${a.preset}`;
+  if (a.provider === 'grok') return 'grok-cli';
+  return a.provider || '';
+}
+
+/**
+ * How this agent proves who it is.
+ *
+ * The question a newcomer actually has is "do I paste a key, or is it already
+ * signed in on this machine", and until now the panel could not express either.
+ * A key typed here goes to a write-only route and into an encrypted store; it
+ * is never rendered back, so the field shows whether one exists and not what
+ * it is.
+ */
+function authBlock(a, i, s) {
+  const cred = a.credentials || {};
+  const mode = a.auth || 'auto';
+  const stored = cred.source === 'studio';
+  const canStore = data.secrets?.canStore;
+
+  const status = cred.ok
+    ? `<span class="pill ok">${esc(cred.detail || 'ready')}</span>`
+    : `<span class="pill warn">${esc(cred.detail || 'no credentials')}</span>`;
+
+  return `
+      <label class="set-f">
+        <span>Authentication</span>
+        <select class="input" data-path="agents.${i}.auth">
+          ${(s.authModes || []).map((m) => `<option value="${esc(m)}"${m === mode ? ' selected' : ''}>${esc({
+    auto: 'whatever this machine has',
+    key: 'an API key',
+    login: "this machine's CLI login",
+  }[m] || m)}</option>`).join('')}
+        </select>
+      </label>
+
+      <div class="set-f wide set-auth">
+        <div>${status}</div>
+        ${mode === 'key' ? `
+          <label class="set-f wide">
+            <span>API key ${cred.keyVar ? `<em class="muted">used as ${esc(cred.keyVar)}</em>` : ''}</span>
+            <input class="input" type="password" autocomplete="off" spellcheck="false"
+                   id="key-${i}" placeholder="${stored ? 'a key is stored — type to replace it' : 'paste the key'}">
+            <span class="set-key-actions">
+              <button class="btn" type="button" data-setkey="${esc(a.id)}:${i}">Save key</button>
+              ${stored ? `<button class="btn ghost danger" type="button" data-clearkey="${esc(a.id)}">Remove</button>` : ''}
+            </span>
+            <em class="muted">${canStore
+    ? `${esc(data.secrets?.protects || '')} It is never shown again and never written to the config file.`
+    : 'Saving will ask the studio to generate an encryption passphrase first — it has none yet.'}
+            A variable of the same name in the environment wins over anything stored here.</em>
+          </label>
+          ${canStore ? '' : `
+          <div class="set-warn">
+            <b>No encryption passphrase yet.</b> Saving a key above will generate one and keep it
+            on this machine, which protects the key file but not a backup of the whole directory.
+            The stronger version is to supply one yourself, and it takes three commands:
+            <ol class="set-steps">
+              ${(data.secrets?.steps || []).map((step) => {
+    const [lead, ...rest] = String(step).split(/:\s+/);
+    const cmd = rest.join(': ');
+    return `<li>${esc(lead)}${cmd ? `<br><code class="set-cmd">${esc(cmd)}</code>` : ''}</li>`;
+  }).join('')}
+            </ol>
+            <div class="muted">${esc(data.secrets?.keep || '')}</div>
+            <div class="muted">Or skip all of that: put the key in
+            <code>${esc(cred.keyVar || 'the provider variable')}</code> where the studio runs,
+            and it will be found without being stored here at all.</div>
+          </div>`}` : ''}
+      </div>`;
+}
+
 function agentCard(a, i, s) {
   const prot = data.protectedFields?.[a.id] || [];
   const isCustomPersona = a.persona && !s.personas.includes(a.persona);
@@ -325,10 +418,10 @@ function agentCard(a, i, s) {
       <span class="set-agent-n">${i + 1}</span>
       <input class="input" data-path="agents.${i}.id" value="${esc(a.id)}"
              placeholder="id" aria-label="agent id">
-      <select class="input" data-path="agents.${i}.provider" aria-label="provider">
-        ${data.providers.map((p) =>
-    `<option value="${esc(p)}"${p === a.provider ? ' selected' : ''}>${esc(p)}</option>`).join('')}
-        ${unknownProvider ? `<option value="${esc(a.provider)}" selected>${esc(a.provider)} (no adapter)</option>` : ''}
+      <select class="input" data-path="agents.${i}.backend.select" aria-label="provider">
+        ${(s.backends || []).map((b) =>
+    `<option value="${esc(b.id)}"${b.id === backendIdOf(a) ? ' selected' : ''}>${esc(b.label)}</option>`).join('')}
+        ${unknownProvider ? `<option value="" selected>${esc(a.provider)} (no adapter)</option>` : ''}
       </select>
       <div class="set-agent-move">
         <button class="btn ghost" data-move="${i}:-1" type="button" title="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
@@ -357,14 +450,7 @@ function agentCard(a, i, s) {
                placeholder="provider default">
       </label>
 
-      <label class="set-f">
-        <span>Backend <em class="muted">optional</em></span>
-        <select class="input" data-path="agents.${i}.preset.select">
-          <option value="">the provider's own</option>
-          ${Object.entries(s.presets || {}).map(([k, v]) =>
-    `<option value="${esc(k)}"${a.preset === k ? ' selected' : ''}>${esc(v.label || k)}</option>`).join('')}
-        </select>
-      </label>
+      ${authBlock(a, i, s)}
 
       ${a.preset || a.baseUrl ? `<label class="set-f wide">
         <span>API base URL</span>
@@ -589,6 +675,41 @@ ${target}
     return waitForRestart();
   };
 
+  // A key never travels with the rest of the form: the config save writes a
+  // file meant to be committed, and this goes to a write-only route instead.
+  $('settings').querySelectorAll('[data-setkey]').forEach((b) => {
+    b.onclick = async () => {
+      const [agent, i] = b.dataset.setkey.split(':');
+      const input = $(`key-${i}`);
+      const value = input?.value || '';
+      if (!value.trim()) return;
+      // The one place a human is told what they are trading before they trade
+      // it. A generated passphrase lives beside the keys it protects, and
+      // saying so here is the difference between a choice and a surprise.
+      if (!data.secrets?.canStore && !confirm(
+        'This studio has no encryption passphrase, so it will generate one and keep it on the '
+        + 'same disk as the keys it protects.\n\n'
+        + 'That protects the key file on its own, but a backup containing both is no better '
+        + 'than plaintext. The stronger option is to set STUDIO_SECRET_KEY where the studio runs.\n\n'
+        + 'Generate one and save the key?',
+      )) return;
+      const r = await postKey(agent, value, { generateKey: !data.secrets?.canStore });
+      if (input) input.value = '';
+      if (r.ok) setNotice('ok', `Key stored for ${esc(agent)}.`);
+      else setNotice('warn', esc(r.error || 'that key could not be stored'));
+      return load();
+    };
+  });
+  $('settings').querySelectorAll('[data-clearkey]').forEach((b) => {
+    b.onclick = async () => {
+      const agent = b.dataset.clearkey;
+      if (!confirm(`Remove the stored API key for ${agent}?`)) return;
+      const r = await postKey(agent, '');
+      setNotice(r.ok ? 'ok' : 'warn', r.ok ? `Key removed for ${esc(agent)}.` : esc(r.error || 'could not remove it'));
+      return load();
+    };
+  });
+
   $('proj-switch').onclick = () => go(false);
   $('proj-reset').onclick = () => go(true);
 
@@ -678,6 +799,25 @@ function renderKeepingCaret(id = 'proj-path') {
 function onEdit(input) {
   const path = input.dataset.path;
   const value = input.type === 'checkbox' ? input.checked : input.value;
+
+  if (path.endsWith('.backend.select')) {
+    const i = Number(path.split('.')[1]);
+    const chosen = (data.schema.backends || []).find((b) => b.id === value);
+    if (chosen) {
+      // Both halves at once, because they are one decision. Clearing baseUrl and
+      // apiKeyEnv on a native backend matters: leaving them behind is how an
+      // agent ends up pointed at Moonshot while its label says Anthropic.
+      Object.assign(draft.agents[i], {
+        provider: chosen.provider,
+        preset: chosen.preset || undefined,
+        baseUrl: chosen.baseUrl || '',
+        apiKeyEnv: chosen.apiKeyEnv || '',
+      });
+      if (!chosen.preset) delete draft.agents[i].preset;
+    }
+    dirty = true;
+    return render();
+  }
 
   if (path.endsWith('.preset.select')) {
     const i = Number(path.split('.')[1]);

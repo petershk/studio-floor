@@ -5,7 +5,7 @@ import zlib from 'node:zlib';
 import { WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
 import { AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG } from '../core/roster.mjs';
-import { providers } from '../agents/adapters/index.mjs';
+import { providers, getAdapter } from '../agents/adapters/index.mjs';
 import {
   readRawConfig, applyConfigPatch, saveRawConfig, restartRequiredFor, normaliseConfig,
   configSchema, PERSONAS, AGENT_PROTECTED_OPTIONS, AGENT_SECRET_OPTIONS, RUNNER_EDITABLE,
@@ -15,6 +15,10 @@ import {
 } from '../core/projects.mjs';
 import { updateStatus, pullUpdate } from '../core/update.mjs';
 import { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } from '../core/clone.mjs';
+import { resolveAuth } from '../core/auth.mjs';
+import {
+  putSecret, listSecrets, removeSecret, secretNameFor, storageHint, generateKey, secretKey, NO_KEY,
+} from '../core/secrets.mjs';
 import { ensureGitIdentity } from '../core/git.mjs';
 import {
   resolvePreview, previewVersion, resolvePreviewFile, PREVIEW_MIME,
@@ -228,6 +232,17 @@ export function createHttpServer(store, runner) {
             }, 403);
           }
           return switchProject(store, runner, body, res);
+        }
+
+        if (p === '/api/secrets') {
+          if (!sameOrigin(req)) {
+            return json(res, {
+              ok: false,
+              error: 'refused: this request came from another origin. A provider key decides what '
+                + 'this studio can spend, so it is not writable cross-site.',
+            }, 403);
+          }
+          return json(res, writeSecret(store, body));
         }
 
         if (p === '/api/config') {
@@ -547,6 +562,11 @@ function readConfigForUi() {
         sandbox: a.options?.sandbox || '',
         permissionMode: a.options?.permissionMode || '',
         disableMcp: a.options?.disableMcp ?? null,
+        auth: a.options?.auth || 'auto',
+        // Whether this agent has a usable credential and where it comes from —
+        // never the credential. The panel can then say "key stored" or "no key"
+        // instead of the human finding out on the first turn.
+        credentials: authSummary(a),
       })),
       runner: resolved.runner,
       server: { port: resolved.server.port, host: resolved.server.host, token: resolved.server.token ? '(set)' : null },
@@ -554,10 +574,74 @@ function readConfigForUi() {
     },
     protectedFields: protectedBy,
     providers: providers(),
-    schema: configSchema(),
+    schema: configSchema({ knownProviders: providers() }),
+    // Whether this studio can store a key at all, so the panel offers the field
+    // or explains why it cannot.
+    secrets: { ...storageHint(), stored: listSecrets() },
     // The roster this process is actually running, so the panel can say plainly
     // when the file and the running studio have diverged.
     running: AGENTS.map((a) => ({ id: a.id, provider: a.provider })),
+  };
+}
+
+/**
+ * Store or clear one agent's API key.
+ *
+ * Write-only, the way Grafana's secureJsonData and n8n's credentials are: it
+ * can be set from a browser and never read back into one. The response says
+ * whether a key is now present, and nothing else — an "ends in …a1b2" hint is
+ * still four characters of a secret in a response that crosses a network.
+ */
+function writeSecret(store, body) {
+  // Generating a passphrase is a separate, explicit act. It is never a silent
+  // fallback, because a passphrase kept beside the keys it protects is a real
+  // downgrade and the human asking for it should have been told that first.
+  if (body?.generateKey && !secretKey()) {
+    generateKey();
+    store.append('human.control', null, {
+      action: 'secret',
+      text: 'generated an encryption passphrase for stored keys, kept on this machine',
+      via: 'browser',
+    });
+  }
+
+  const agent = String(body?.agent || '').trim();
+  if (!AGENT_IDS.includes(agent)) {
+    return { ok: false, error: `no agent "${agent}" in this studio — it is ${AGENT_IDS.join(', ')}` };
+  }
+  const value = typeof body?.value === 'string' ? body.value.trim() : '';
+  const name = secretNameFor(agent);
+
+  if (!value) {
+    removeSecret(name);
+    // Recorded, because a key disappearing is a change to what this studio can
+    // do, and the feed is where "why did that agent stop working" gets answered.
+    store.append('human.control', null, { action: 'secret', text: `cleared the API key for ${agent}`, via: 'browser' });
+    return { ok: true, agent, set: false };
+  }
+
+  try {
+    putSecret(name, value);
+  } catch (e) {
+    return { ok: false, error: e.message === NO_KEY ? NO_KEY : `could not store that key — ${e.message}` };
+  }
+  store.append('human.control', null, { action: 'secret', text: `set an API key for ${agent}`, via: 'browser' });
+  return { ok: true, agent, set: true };
+}
+
+/**
+ * What the panel is allowed to know about an agent's credentials.
+ *
+ * Deliberately shaped so there is nothing here to leak: whether a key exists,
+ * where it came from, and the name of the variable. Never a value, and never a
+ * prefix of one — a "sk-ant-…" hint is still four characters of a secret in a
+ * response that crosses a network.
+ */
+function authSummary(agent) {
+  const adapter = getAdapter(agent.provider);
+  const a = resolveAuth(agent, adapter);
+  return {
+    mode: a.mode, source: a.source, keyVar: a.keyVar, ok: a.ok, detail: a.detail,
   };
 }
 

@@ -164,6 +164,70 @@ export function applyPreset(agent) {
   return { ...fields, ...agent, provider: agent.provider || p.provider };
 }
 
+/**
+ * The list a human actually chooses from.
+ *
+ * The config has two fields for this — `provider`, meaning which CLI, and
+ * `preset`, meaning which endpoint that CLI is pointed at — and both are
+ * accurate and neither is what someone picking a model is thinking about. They
+ * are thinking "Anthropic" or "xAI". Worse, the two are not independent: xAI is
+ * reachable *either* by its own CLI *or* through Codex against its API, which
+ * as two dropdowns is a puzzle rather than a choice.
+ *
+ * So the panel gets one list of backends, each of which knows the pair it
+ * stands for. The config keeps both fields; only the question changes.
+ */
+export function backends(knownProviders = []) {
+  const has = (id) => knownProviders.includes(id);
+  const list = [];
+  // What to call the CLI in "via …", so the label reads like a sentence rather
+  // than like an internal id.
+  const cliName = {
+    claude: 'Claude Code', codex: 'Codex CLI', gemini: 'Gemini CLI', grok: 'Grok CLI',
+  };
+
+  // A vendor's own CLI first, where the studio has an adapter for it.
+  if (has('claude')) {
+    list.push({
+      id: 'claude', label: 'Anthropic — Claude Code', provider: 'claude', preset: '', vendor: 'Anthropic',
+    });
+  }
+  if (has('codex')) {
+    list.push({
+      id: 'codex', label: 'OpenAI — Codex CLI', provider: 'codex', preset: '', vendor: 'OpenAI',
+    });
+  }
+  if (has('gemini')) {
+    list.push({
+      id: 'gemini', label: 'Google — Gemini CLI', provider: 'gemini', preset: '', vendor: 'Google',
+    });
+  }
+  if (has('grok')) {
+    list.push({
+      id: 'grok-cli', label: 'xAI — Grok CLI', provider: 'grok', preset: '', vendor: 'xAI',
+      note: 'Signs in with `grok login`. This CLI takes no API key, so it needs a machine '
+        + 'somebody has logged into.',
+    });
+  }
+
+  // Then every preset, which is a vendor reached through somebody else's CLI.
+  for (const [id, p] of Object.entries(PRESETS)) {
+    if (!has(p.provider)) continue;
+    list.push({
+      id: `preset:${id}`,
+      label: `${p.label} — via ${cliName[p.provider] || p.provider}`,
+      provider: p.provider,
+      preset: id,
+      vendor: p.label,
+      baseUrl: p.baseUrl,
+      apiKeyEnv: p.apiKeyEnv,
+      note: p.note,
+    });
+  }
+
+  return list;
+}
+
 /** The roster you get if you never write a config. */
 export const DEFAULT_AGENTS = [
   { id: 'codex', provider: 'codex', label: 'Codex', persona: 'implementer' },
@@ -642,8 +706,12 @@ export function saveRawConfig(file, raw) {
 }
 
 /** Everything the settings panel needs to render itself, so the UI hardcodes nothing. */
-export function configSchema() {
+export function configSchema({ knownProviders = [] } = {}) {
   return {
+    // One list of things a human might pick, each knowing which CLI and which
+    // endpoint it stands for. `presets` stays for anything still reading it.
+    backends: backends(knownProviders),
+    authModes: AUTH_MODES,
     presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, {
       label: v.label, provider: v.provider, baseUrl: v.baseUrl, apiKeyEnv: v.apiKeyEnv, note: v.note,
     }])),
