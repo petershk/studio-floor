@@ -8,6 +8,7 @@ src/
     roster.mjs     the resolved team, loaded once per process
     events.mjs     the event vocabulary and one-line renderer
     store.mjs      the append-only log and every projection of it
+    heartbeat.mjs  proof the studio is alive, left where it outlives the process
   agents/
     adapters/      one file per vendor CLI, plus the registry
     prompts.mjs    what agents are actually told
@@ -18,6 +19,7 @@ src/
     studio.mjs     the channel agents speak through
   bin/
     start.mjs      the launcher
+    supervise.mjs  restarts the studio after a switch, an update or a crash
   web/             what the human watches, including the settings panel
   index.mjs        the programmatic entry point
 ```

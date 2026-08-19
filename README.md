@@ -67,6 +67,13 @@ skip). `Ctrl-C` stops everything, and the next start rebuilds the studio's
 entire world from the log — conversation, tasks, decisions
 and all.
 
+If the studio dies it is restarted for you, up to five times with a backoff, and
+the feed records the gap and the reason. From any other terminal, **`studio
+status`** answers whether one is running here — and if not, when it stopped and
+what it was doing. It reads a heartbeat file rather than the log, so it still
+answers when the studio is gone, and it exits non-zero when nothing is up, which
+is enough for a cron line.
+
 Three things worth knowing before your first run:
 
 - **`git init` first.** Agents edit files and run commands. Git is the

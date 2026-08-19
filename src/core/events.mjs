@@ -69,6 +69,7 @@ export const MESSAGE_KINDS = [
 export const EVENT_KINDS = [
   'studio.started',
   'studio.note',
+  'studio.recovered',
   'log.recovered',
 
   'agent.registered',
@@ -152,6 +153,13 @@ export function describe(ev) {
   switch (ev.kind) {
     case 'studio.started':
       return 'Studio started';
+    case 'studio.recovered': {
+      // The gap in the feed is the point: whoever reads this later needs to
+      // see that the studio was gone, for how long, and why it came back.
+      const how = d.signal ? `killed by ${d.signal}` : `exited with code ${d.code}`;
+      const after = d.downMs ? `, down for ${Math.max(1, Math.round(d.downMs / 1000))}s` : '';
+      return `Studio restarted by the supervisor — the previous one ${how}${after}`;
+    }
     case 'log.recovered':
       if (d.reason === 'unterminated') {
         return 'Event log repaired a record missing its trailing newline';

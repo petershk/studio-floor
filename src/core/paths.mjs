@@ -90,6 +90,16 @@ export const SWITCH_FILE = path.join(USER_DIR, 'switch.json');
 export const EXIT_SWITCH = 75;
 
 /**
+ * Exit code for "do not restart me — starting again changes nothing".
+ *
+ * A roster typo or a port already in use will fail identically every time, and
+ * the supervisor's restart budget spent on those is nothing but noise between
+ * the human and the error they need to read. 78 is EX_CONFIG from sysexits.h,
+ * which is what it means; 75 above is EX_TEMPFAIL, which is also what it means.
+ */
+export const EXIT_REFUSED = 78;
+
+/**
  * How an agent invokes the studio CLI from inside its own turn.
  *
  * Absolute, because the agent's shell starts in PROJECT_ROOT and the CLI lives

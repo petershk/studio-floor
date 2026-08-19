@@ -18,7 +18,7 @@ import { createHttpServer } from '../server/server.mjs';
 import { Runner, loadConfig } from '../agents/runner.mjs';
 import { loadUserAdapters, providers } from '../agents/adapters/index.mjs';
 import {
-  PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT, EXIT_SWITCH,
+  PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT, EXIT_SWITCH, EXIT_REFUSED,
 } from '../core/paths.mjs';
 import { startHeartbeat } from '../core/heartbeat.mjs';
 import { AGENT_IDS, AGENTS, CONFIG, PROJECT } from '../core/roster.mjs';
@@ -43,7 +43,9 @@ if (only) {
       `studio: --only names ${unknown.join(', ')}, which ${unknown.length > 1 ? 'are' : 'is'} not in the roster.\n`
       + `        This studio is ${AGENT_IDS.join(', ')} (from ${CONFIG_FILE}).`,
     );
-    process.exit(1);
+    // Refused rather than failed: the supervisor must not spend its restart
+    // budget on a typo that will read exactly the same way next time.
+    process.exit(EXIT_REFUSED);
   }
   config.agents = wanted;
 }
@@ -63,6 +65,15 @@ for (const id of AGENT_IDS) {
   if (store.state.agents[id]?.state !== 'offline') {
     store.append('agent.stopped', id, { reason: 'studio restarted; no supervised worker is running yet' });
   }
+}
+
+// The supervisor cannot write to the log — the studio owns it, and the studio
+// was dead at the moment worth recording. So it hands the story to the process
+// it starts instead, and the gap in the feed comes with its own explanation.
+if (process.env.STUDIO_RECOVERED) {
+  try {
+    store.append('studio.recovered', null, JSON.parse(process.env.STUDIO_RECOVERED));
+  } catch { /* a malformed hand-off must not stop the studio coming back */ }
 }
 
 store.append('studio.started', null, {
@@ -177,8 +188,12 @@ function bound(server) {
         console.error(`\n  studio: not allowed to bind ${HOST}:${PORT} — try a port above 1024.\n`);
       } else {
         console.error(`\n  studio: could not start the server — ${err.message}\n`);
+        process.exit(1);
       }
-      process.exit(1);
+      // A taken port and a forbidden one are both settled facts. Restarting
+      // into them would bury the message above under five more copies of
+      // itself, which is the opposite of what the restart is for.
+      process.exit(EXIT_REFUSED);
     });
   });
 }
