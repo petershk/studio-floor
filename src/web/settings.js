@@ -21,6 +21,10 @@ let projects = null;  // the last /api/projects payload
 let pathDraft = '';   // the directory the human is typing
 let probe = null;     // what /api/projects/inspect says about it
 let cloneDraft = '';  // the repository URL typed into the clone box
+// Which way the human is changing project: clone it, pick one already in the
+// workspace, or name a path. Defaulted once the payload arrives, because the
+// right first offer depends on whether anything is there yet.
+let projectMode = null;
 let cloning = false;  // a clone in flight, so the button can say so
 let data = null;      // the last /api/config payload
 let draft = null;     // what the human has typed but not saved
@@ -37,6 +41,14 @@ async function load() {
   ]);
   data = await r.json();
   projects = await pr.json().catch(() => null);
+  if (projectMode === null) {
+    projectMode = projects?.workspace?.holds?.length ? 'workspace' : 'clone';
+  }
+  // The path box starts on the project this studio is already working on, so
+  // it is somewhere to edit from rather than an empty field to type a long
+  // absolute path into. The Switch button stays disabled until it differs,
+  // which is what makes a pre-filled box safe.
+  if (!pathDraft && projects?.current?.path) pathDraft = projects.current.path;
   update = await ur.json().catch(() => null);
   if (!data.ok) {
     render();
@@ -187,52 +199,87 @@ function render() {
 function projectBlock() {
   if (!projects?.ok) return '';
   const cur = projects.current;
+  const ws = projects.workspace;
   const p = probe;
   const typed = pathDraft.trim();
   const same = p && cur && p.info.path === cur.path;
   const blocked = p ? p.problems.length > 0 : true;
+  const holdingPen = ws?.isProject;
 
   return `
     <section class="set-block">
-      <h3>Working directory</h3>
-      <p class="muted">The studio works on one project at a time. Its memory lives inside
-      that project, so coming back to a directory picks up exactly where the team left off.</p>
+      <h3>Project</h3>
 
       <div class="set-current">
+        <div class="muted">The team is working in</div>
         <div class="mono">${esc(cur.path)}</div>
         <div class="muted">
           ${cur.briefUntouched
-            ? '<b>brief is still the init template — the team will draft a real one</b>'
-            : cur.briefInferred
-              ? '<b>brief is an agent-inferred draft — not a human spec</b>'
-              : cur.hasBrief ? 'brief found' : '<b>no brief — the team will read the directory and draft one</b>'}
+    ? '<b>brief is still the init template — the team will draft a real one</b>'
+    : cur.briefInferred
+      ? '<b>brief is an agent-inferred draft — not a human spec</b>'
+      : cur.hasBrief ? 'brief found' : '<b>no brief — the team will read the directory and draft one</b>'}
           · ${cur.events ? `${cur.events} recorded events` : 'no history yet'}
           ${cur.isGitRepo ? ' · git repo' : ' · <b>not a git repo</b>'}
           ${cur.legacyLayout ? ' · legacy .studio layout' : ''}
         </div>
       </div>
 
-      <label class="set-f wide">
-        <span>Clone a repository into the workspace</span>
-        <input class="input" id="proj-clone" value="${esc(cloneDraft)}" spellcheck="false"
-               placeholder="https://github.com/owner/repo">
-      </label>
-      <div class="set-actions">
-        <button class="btn primary" id="proj-clone-go" type="button"
-          ${cloning || !cloneDraft.trim() ? 'disabled' : ''}>
-          ${cloning ? 'Cloning…' : 'Clone and switch'}</button>
+      ${holdingPen ? `<div class="set-warn">
+        This is the <b>workspace</b> — the directory repositories are cloned into — rather than a
+        project. The team will try to work on the workspace itself, which is almost never what you
+        want. Pick or clone a project below.</div>` : ''}
+
+      ${ws ? `<div class="set-current">
+        <div class="muted">Repositories live in</div>
+        <div class="mono">${esc(ws.path)}</div>
+        <div class="muted">${ws.holds?.length
+    ? `${ws.holds.length} folder${ws.holds.length === 1 ? '' : 's'} here`
+    : 'nothing cloned here yet'}</div>
+      </div>` : ''}
+
+      <h4 class="set-sub">Work on something else</h4>
+      <div class="set-modes">
+        ${[
+    ['clone', 'Clone from git'],
+    ['workspace', 'Something already here'],
+    ['path', 'A folder on this machine'],
+  ].map(([id, label]) => `<button class="btn ${projectMode === id ? 'primary' : 'ghost'}"
+          type="button" data-projmode="${id}">${label}</button>`).join('')}
       </div>
-      <p class="muted">It lands beside the other repositories and the studio moves into it.
-      A private repository needs STUDIO_GIT_TOKEN set where the studio runs.</p>
 
-      <label class="set-f wide">
-        <span>Point the team at another directory</span>
-        <input class="input" id="proj-path" value="${esc(pathDraft)}" spellcheck="false"
-               placeholder="an absolute path to a project directory">
-      </label>
+      ${projectMode === 'clone' ? `
+        <label class="set-f wide">
+          <span>Repository URL</span>
+          <input class="input" id="proj-clone" value="${esc(cloneDraft)}" spellcheck="false"
+                 placeholder="https://github.com/owner/repo">
+        </label>
+        <div class="set-actions">
+          <button class="btn primary" id="proj-clone-go" type="button"
+            ${cloning || !cloneDraft.trim() ? 'disabled' : ''}>
+            ${cloning ? 'Cloning…' : 'Clone and work on it'}</button>
+        </div>
+        <p class="muted">It lands in the workspace above and the studio moves into it. A private
+        repository needs a git token where the studio runs.</p>` : ''}
 
-      ${typed && p ? `<div class="set-probe ${blocked ? 'bad' : 'good'}">
-        ${blocked
+      ${projectMode === 'workspace' ? (ws?.holds?.length ? `
+        <div class="set-recent">
+          ${ws.holds.map((h) => `<button class="btn ${h.isCurrent ? 'ghost' : ''}" type="button"
+            data-usepath="${esc(h.path)}"${h.isCurrent ? ' disabled' : ''} title="${esc(h.path)}">
+            ${esc(h.name)}${h.isGitRepo ? '' : ' <span class="muted">(no git)</span>'}${h.isCurrent ? ' — current' : ''}
+          </button>`).join('')}
+        </div>
+        <p class="muted">Everything sitting in the workspace. Choosing one restarts the studio in it.</p>`
+    : '<p class="muted">Nothing is in the workspace yet. Clone something, or point at a folder.</p>') : ''}
+
+      ${projectMode === 'path' ? `
+        <label class="set-f wide">
+          <span>Absolute path to a directory</span>
+          <input class="input" id="proj-path" value="${esc(pathDraft)}" spellcheck="false"
+                 placeholder="${esc(ws?.path ? `${ws.path}/my-project` : '/path/to/project')}">
+        </label>
+        ${typed && p ? `<div class="set-probe ${blocked ? 'bad' : 'good'}">
+          ${blocked
     ? p.problems.map((x) => esc(x)).join('; ')
     : `<b>${esc(p.info.name)}</b> — ${p.info.entries} item(s)`
       + `${p.info.isGitRepo ? ', git repo' : ', not a git repo'}`
@@ -242,21 +289,21 @@ function projectBlock() {
           ? ', <b>brief is an agent-inferred draft</b>'
           : p.info.hasBrief ? ', has a brief' : ', <b>no brief — the team will draft one</b>'}`
       + `${p.info.events ? `, <b>${p.info.events} events to resume</b>` : ', no history yet'}`}
-      </div>` : ''}
-
-      <div class="set-actions">
-        <button class="btn primary" id="proj-switch" type="button"
-          ${blocked || same ? 'disabled' : ''}>Switch and restart</button>
-        <button class="btn danger" id="proj-reset" type="button"
-          ${blocked ? 'disabled' : ''}>Switch and reset its history</button>
-      </div>
-      <p class="muted">Switching stops the agents and restarts the studio. Reset deletes that
-      project's recorded history — its code, brief and config are untouched.</p>
+        </div>` : ''}
+        <div class="set-actions">
+          <button class="btn primary" id="proj-switch" type="button"
+            ${blocked || same ? 'disabled' : ''}>Work on this</button>
+          <button class="btn danger" id="proj-reset" type="button"
+            ${blocked ? 'disabled' : ''}>Work on it and erase its history</button>
+        </div>
+        <p class="muted">The team's memory lives inside the project, so coming back to a directory
+        picks up where it left off. Erasing deletes that recorded history — the code, brief and
+        config are untouched.</p>` : ''}
 
       ${projects.recent?.length > 1 ? `<div class="set-recent">
         <span class="muted">Recent</span>
         ${projects.recent.filter((r) => r.path !== cur.path).slice(0, 6).map((r) => `
-          <button class="btn ghost" data-recent="${esc(r.path)}" title="${esc(r.path)}">
+          <button class="btn ghost" data-usepath="${esc(r.path)}" title="${esc(r.path)}">
             ${esc(r.name)}${r.events ? ` <span class="muted">${r.events}</span>` : ''}
           </button>`).join('')}
       </div>` : ''}
@@ -789,11 +836,12 @@ function wireUpdate() {
 }
 
 function wireProject() {
+  // The path box only exists in one of the three modes now, and an early
+  // return here would leave every control below it — the mode buttons, the
+  // clone button, the key fields, restart — dead in the other two.
   const input = $('proj-path');
-  if (!input) return;
-
   let timer = null;
-  input.oninput = () => {
+  if (input) input.oninput = () => {
     pathDraft = input.value;
     // Probe as you type, debounced. A stat() per keystroke would be rude to the
     // filesystem and would race its own responses.
@@ -812,10 +860,21 @@ function wireProject() {
     }, 220);
   };
 
-  $('settings').querySelectorAll('[data-recent]').forEach((b) => {
+  $('settings').querySelectorAll('[data-projmode]').forEach((b) => {
     b.onclick = () => {
-      pathDraft = b.dataset.recent;
+      projectMode = b.dataset.projmode;
+      render();
+    };
+  });
+
+  // Everything that names a directory goes the same way: a recent project, a
+  // folder sitting in the workspace, or one typed by hand. They differ in how
+  // the path is chosen and not at all in what happens next.
+  $('settings').querySelectorAll('[data-usepath]').forEach((b) => {
+    b.onclick = () => {
+      pathDraft = b.dataset.usepath;
       probe = null;
+      projectMode = 'path';
       render();
       $('proj-path')?.focus();
       $('proj-path')?.dispatchEvent(new Event('input'));
@@ -944,8 +1003,10 @@ ${target}
     };
   }
 
-  $('proj-switch').onclick = () => go(false);
-  $('proj-reset').onclick = () => go(true);
+  const switchBtn = $('proj-switch');
+  if (switchBtn) switchBtn.onclick = () => go(false);
+  const resetBtn = $('proj-reset');
+  if (resetBtn) resetBtn.onclick = () => go(true);
 
   const cloneBox = $('proj-clone');
   if (cloneBox) {

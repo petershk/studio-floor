@@ -661,3 +661,15 @@ main {
   color: var(--dim);
   font-size: 12px;
 }
+
+/* Project, workspace, and the three ways of changing which is which. */
+.set-sub {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.set-modes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.set-current + .set-current { margin-top: 8px; }

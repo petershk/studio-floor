@@ -2,7 +2,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
+import {
+  WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT, STATE_DIR, HOME_DIR,
+} from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
 import { AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG } from '../core/roster.mjs';
 import { providers, getAdapter } from '../agents/adapters/index.mjs';
@@ -167,6 +169,16 @@ export function createHttpServer(store, runner) {
           ok: true,
           current: { ...inspect(PROJECT_ROOT), legacyLayout: IS_LEGACY_LAYOUT },
           recent: recentProjects(),
+          // The workspace is where clones land, and it is not the project. On
+          // a cloud box the studio starts pointed at the workspace itself —
+          // a directory holding repositories rather than a thing to build —
+          // and a panel that shows only one path makes those look like the
+          // same idea.
+          workspace: {
+            path: WORKSPACE_DIR,
+            isProject: path.resolve(WORKSPACE_DIR) === path.resolve(PROJECT_ROOT),
+            holds: listWorkspace(),
+          },
         });
       }
 
@@ -407,6 +419,39 @@ async function runUpdate(store, runner, res) {
  * the deliberate opposite: the supervisor deletes that state before the new
  * studio starts, while nothing is holding the files open.
  */
+/**
+ * What is already sitting in the workspace.
+ *
+ * Cheap and shallow on purpose — this is a list of names for a dropdown, not a
+ * survey. A directory with a .git in it is a repository somebody cloned; the
+ * rest are reported anyway, because a folder somebody copied there by hand is
+ * just as valid a project and refusing to mention it would be a lie about what
+ * is on the disk.
+ */
+function listWorkspace() {
+  try {
+    // The studio's own directories are not projects. Offering `studio_floor`
+    // or the state directory as somewhere to work would point the team at the
+    // studio's memory of itself.
+    const ours = new Set([path.resolve(STATE_DIR), path.resolve(HOME_DIR)]);
+    return fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+      .filter((e) => !ours.has(path.resolve(WORKSPACE_DIR, e.name)))
+      .map((e) => {
+        const full = path.join(WORKSPACE_DIR, e.name);
+        return {
+          name: e.name,
+          path: full,
+          isGitRepo: fs.existsSync(path.join(full, '.git')),
+          isCurrent: path.resolve(full) === path.resolve(PROJECT_ROOT),
+        };
+      })
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Put a repository on this machine.
  *

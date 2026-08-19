@@ -104,14 +104,14 @@ const configWith = (agent, vendors = VENDORS) => ({
 
 /** A fresh panel over one agent. Each case gets its own module instance. */
 let instance = 0;
-async function panel(agent, vendors) {
+async function panel(agent, vendors, projects = { ok: false }) {
   const cfg = configWith(agent, vendors);
   const stub = installStubBrowser({ state: {}, config: cfg });
   globalThis.fetch = async (u) => ({
     ok: true,
     status: 200,
     json: async () => (String(u).startsWith('/api/config') ? cfg
-      : String(u).startsWith('/api/projects') ? { ok: false } : { ok: true }),
+      : String(u).startsWith('/api/projects') ? projects : { ok: true }),
   });
   instance += 1;
   const mod = await import(`../src/web/settings.js?case=${instance}`);
@@ -251,6 +251,53 @@ console.log('\n talking to an older studio');
   check('a studio that sends no company list still renders a usable control',
     /<option value="claude"/.test(noVendors.html()), 'no options rendered');
   check('and the newer one is unaffected', /value="anthropic" selected/.test(p.html()));
+}
+
+console.log('\n the project, and the workspace it sits in');
+
+const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
+  ok: true,
+  current: {
+    path: projectPath, name: 'p', entries: 3, hasBrief: true, isGitRepo: true, events: 0,
+  },
+  recent: [],
+  workspace: { path: workspacePath, isProject: projectPath === workspacePath, holds },
+});
+
+{
+  // The studio starts pointed at the workspace on a cloud box — a directory
+  // holding repositories rather than a thing to build — and a panel showing one
+  // path made those look like the same idea.
+  const p = await panel(
+    { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined,
+    projectsPayload({
+      projectPath: '/workspace',
+      workspacePath: '/workspace',
+      holds: [{ name: 'repo-a', path: '/workspace/repo-a', isGitRepo: true, isCurrent: false }],
+    }),
+  );
+  const html = p.html();
+  check('working in the workspace itself is called out as almost never what you want',
+    /This is the <b>workspace<\/b>/.test(html));
+  check('and the project and the workspace are shown as two different things',
+    html.includes('The team is working in') && html.includes('Repositories live in'));
+  check('with something already there offered first',
+    /data-projmode="workspace"[^>]*>Something already here/.test(html)
+    || /class="btn primary"[\s\S]{0,80}data-projmode="workspace"/.test(html), 'wrong default mode');
+}
+
+{
+  const p = await panel(
+    { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined,
+    projectsPayload({ projectPath: '/workspace/repo-a', workspacePath: '/workspace', holds: [] }),
+  );
+  const html = p.html();
+  check('a real project is not warned about', !/This is the <b>workspace<\/b>/.test(html));
+  // Nothing cloned yet, so the only useful first offer is to clone something.
+  check('an empty workspace offers cloning first',
+    /class="btn primary"[\s\S]{0,80}data-projmode="clone"/.test(html), 'wrong default mode');
 }
 
 console.log('\n restarting');
