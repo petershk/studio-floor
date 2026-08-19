@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { installStubBrowser } from './stub-browser.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-web-'));
 fs.mkdirSync(path.join(tmp, 'studio_floor'), { recursive: true });
@@ -62,116 +63,9 @@ const STATE = {
 };
 store.close();
 
-// ------------------------------------------------------------- a stub browser
-
-/** One object that answers to everything an element is asked to do. */
-function element() {
-  const el = {
-    id: '',
-    hidden: false,
-    disabled: false,
-    value: '',
-    textContent: '',
-    innerHTML: '',
-    innerText: '',
-    scrollTop: 0,
-    scrollHeight: 0,
-    clientHeight: 0,
-    checked: false,
-    dataset: {},
-    style: {},
-    classList: {
-      add() {}, remove() {}, toggle() {}, contains: () => false,
-    },
-    children: [],
-    parentNode: null,
-    addEventListener() {},
-    removeEventListener() {},
-    appendChild(child) { return child; },
-    removeChild(child) { return child; },
-    insertBefore(child) { return child; },
-    remove() {},
-    setAttribute() {},
-    getAttribute: () => null,
-    removeAttribute() {},
-    closest: () => null,
-    focus() {},
-    blur() {},
-    click() {},
-    scrollIntoView() {},
-    getBoundingClientRect: () => ({
-      top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0,
-    }),
-    querySelector: () => element(),
-    querySelectorAll: () => [],
-    matches: () => false,
-  };
-  return el;
-}
-
-const doc = {
-  title: '',
-  body: element(),
-  documentElement: element(),
-  readyState: 'complete',
-  getElementById: () => element(),
-  querySelector: () => element(),
-  querySelectorAll: () => [],
-  createElement: () => element(),
-  createTextNode: () => element(),
-  addEventListener() {},
-  removeEventListener() {},
-};
-
-/** Every fetch the page makes on the way up, answered the way the server would. */
-const seenFetches = [];
-async function fakeFetch(url) {
-  seenFetches.push(String(url));
-  const body = String(url).startsWith('/api/state') ? STATE
-    : String(url).startsWith('/api/events') ? { events: [] }
-      : String(url).startsWith('/api/config') ? { config: {}, schema: {} }
-        : {};
-  return {
-    ok: true,
-    status: 200,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-  };
-}
-
-/** An event stream that connects and then says nothing, like an idle studio. */
-const streams = [];
-class FakeEventSource {
-  constructor(url) {
-    this.url = url;
-    this.listeners = {};
-    streams.push(this);
-  }
-
-  addEventListener(name, fn) { this.listeners[name] = fn; }
-
-  close() { this.closed = true; }
-}
-
-globalThis.document = doc;
-globalThis.window = {
-  location: { search: '', href: 'http://127.0.0.1:4173/', pathname: '/' },
-  addEventListener() {},
-  removeEventListener() {},
-  matchMedia: () => ({ matches: false, addEventListener() {} }),
-  localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-  setTimeout,
-  clearTimeout,
-  setInterval,
-  clearInterval,
-};
-globalThis.localStorage = globalThis.window.localStorage;
-globalThis.fetch = fakeFetch;
-globalThis.EventSource = FakeEventSource;
-globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
-globalThis.getComputedStyle = () => ({ getPropertyValue: () => '' });
-
 // -------------------------------------------------------------------- the run
+
+const { doc, calls, streams } = installStubBrowser({ state: STATE });
 
 const WEB = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'src', 'web');
 const modules = fs.readdirSync(WEB).filter((f) => f.endsWith('.js'));
@@ -200,7 +94,7 @@ try {
 }
 if (started) {
   check('app.js starts up', true);
-  check('it asked the server for the state', seenFetches.some((u) => u.startsWith('/api/state')), seenFetches.join(', '));
+  check('it asked the server for the state', calls.some((c) => c.url.startsWith('/api/state')), calls.map((c) => c.url).join(', '));
   check('it opened the event stream', streams.length > 0);
   check('it named the studio in the tab title', doc.title.includes('Web fixture'), doc.title);
 }

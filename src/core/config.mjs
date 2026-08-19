@@ -125,6 +125,27 @@ export const PRESETS = {
     note: 'Zhipu GLM, over its Anthropic-compatible endpoint. Set a model, and '
       + 'put your key in ZAI_API_KEY.',
   },
+  // Unlike the two above, this one is on borrowed time, and the note says so
+  // where a human will read it. xAI has deprecated its Anthropic
+  // compatibility in favour of its OpenAI-shaped and native APIs. It answers
+  // today — https://api.x.ai/v1/messages returns 401 rather than 404, which is
+  // how this URL was confirmed rather than guessed — and when it stops it will
+  // present as this agent alone failing to authenticate. That is a vendor
+  // removing an endpoint, not the adapter breaking, and knowing which is which
+  // is worth the two lines it costs.
+  //
+  // The alternative is the real grok CLI, which is a native binary rather than
+  // an npm package, and which this project's image therefore does not carry.
+  grok: {
+    provider: 'claude',
+    label: 'Grok (API)',
+    baseUrl: 'https://api.x.ai',
+    apiKeyEnv: 'XAI_API_KEY',
+    note: 'Grok over the xAI Anthropic-compatible endpoint, for a machine with no '
+      + 'grok CLI on it. Set a model, and put your key in XAI_API_KEY. xAI has '
+      + 'deprecated this compatibility layer: if this agent alone starts failing '
+      + 'to authenticate, suspect the endpoint before the studio.',
+  },
 };
 
 /**

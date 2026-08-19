@@ -6,6 +6,10 @@
  * projection, which keeps every view honest with a trivial amount of code.
  */
 
+// First, and before any other module gets a chance to fetch: a studio with a
+// token refuses every /api/ call without one, and the failure looks like a
+// frozen page rather than a locked one.
+import { installAuth, withToken, TOKEN } from './token.js';
 import { isHumanDirected } from './message-addressing.js';
 import { refillKeepingPlace } from './scroll-follow.js';
 import { refreshSettings } from './settings.js';
@@ -64,17 +68,37 @@ let downSince = null;
 let attempts = 0;
 let lastEventAt = null;
 let baseTitle = 'Studio Floor';
+/** The studio refused us. Nothing else is worth trying until that changes. */
+let locked = false;
 
 // ------------------------------------------------------------------ startup
 
+installAuth();
+
+// Startup stops at the first refusal rather than carrying on into it. Every
+// step below asks the same API the same way, so a 401 that is survivable in
+// refresh() is only survivable if nothing after it tries again — the first
+// version of this fix cleared the render and then threw in primeRaw() instead,
+// which is the same blank page one function later.
 await refresh();
-await primeRaw();
-connect();
-wireControls();
-startUpdateWatch();
+if (!locked) {
+  await primeRaw();
+  connect();
+  wireControls();
+  startUpdateWatch();
+}
 
 async function refresh() {
   const r = await fetch('/api/state');
+  // A 401 used to be assigned to `state` as though it were state, and the first
+  // render then threw on `Object.values(state.tasks)` — killing module
+  // evaluation and leaving a static shell with no explanation in it. Say what
+  // happened instead: a locked studio should look locked.
+  if (!r.ok) {
+    if (r.status === 401) return void lockedOut();
+    throw new Error(`the studio answered ${r.status} for /api/state`);
+  }
+  locked = false;
   state = await r.json();
   adoptRoster(state);
   // Seeded from the log rather than from page load: opening a tab on a studio
@@ -85,6 +109,28 @@ async function refresh() {
     lastEventAt = Number.isFinite(newestTs) ? newestTs : Date.now();
   }
   renderAll();
+}
+
+/**
+ * A studio that will not talk to us, said out loud.
+ *
+ * The page is served to anyone; the API is not. So this is the one failure a
+ * browser can hit before it knows anything at all, and it has to explain itself
+ * without any of the machinery below being alive yet.
+ */
+function lockedOut() {
+  locked = true;
+  const el = $('liveness');
+  if (el) {
+    el.hidden = false;
+    el.className = 'liveness down';
+    el.innerHTML = '<strong>THIS STUDIO NEEDS ITS TOKEN</strong> '
+      + '<span class="lv-detail">open it once as '
+      + '<code>' + esc(location.pathname) + '?token=&lt;STUDIO_TOKEN&gt;</code>'
+      + (TOKEN ? ' — the token this page is holding was refused' : '')
+      + '</span>';
+  }
+  document.title = 'locked — Studio Floor';
 }
 
 // --------------------------------------------------------------- liveness
@@ -162,13 +208,14 @@ function fillAgentSelects() {
 
 async function primeRaw() {
   const r = await fetch('/api/events?raw=true&limit=400');
+  if (!r.ok) return;
   const { events } = await r.json();
   rawEvents = events;
   renderRaw();
 }
 
 function connect(since = state.seq) {
-  const es = new EventSource(`/api/stream?since=${since}`);
+  const es = new EventSource(withToken(`/api/stream?since=${since}`));
   es.onopen = () => {
     $('conn-dot').classList.add('on');
     $('studio-sub').textContent = 'live';

@@ -8,7 +8,48 @@ import { clip, clipObj, opts, str } from './shared.mjs';
  *
  * Codex assigns its own thread id, so `newSession` returns null and the runner
  * picks the id up out of the stream.
+ *
+ * It can also be pointed at something that is not OpenAI, which is how an agent
+ * runs on a machine that has no CLI of its own. xAI is the case this was built
+ * for: its Grok CLI is a native binary rather than an npm package, so a
+ * container that installs its tools from npm cannot have one, and Grok's own
+ * Anthropic-compatible endpoint is deprecated. Its OpenAI-shaped one is not.
+ *
+ * Codex takes that as config rather than environment: `-c` overrides the same
+ * keys `~/.codex/config.toml` would set. Verified against codex-cli 0.148.0 —
+ * with the provider named and the key variable absent it fails with "Missing
+ * environment variable", which is the config being understood rather than
+ * rejected.
  */
+
+/**
+ * The provider id used for whatever an agent is pointed at.
+ *
+ * Codex reserves `openai`, `ollama` and `lmstudio`, so this is deliberately
+ * none of those, and deliberately fixed: one agent is one process, and a name
+ * that varied per agent would only show up in error messages.
+ */
+const PROVIDER_ID = 'studio';
+
+/** Where a literal `apiKey` is put, since codex names a variable, not a secret. */
+const LITERAL_KEY_VAR = 'STUDIO_CODEX_API_KEY';
+
+/**
+ * TOML, in a value that will not be seen by a shell but will be parsed as TOML.
+ *
+ * `baseUrl` is already restricted to https or localhost by config.mjs and
+ * `apiKeyEnv` to an environment variable name, so this is the second lock
+ * rather than the first: anything with a quote in it never reaches a config
+ * file, an argument list or a log line.
+ */
+function tomlString(value, what) {
+  const v = String(value);
+  if (/["\\\n\r]/.test(v)) {
+    throw new Error(`studio: ${what} contains a character that cannot be passed to codex`);
+  }
+  return `"${v}"`;
+}
+
 export default {
   id: 'codex',
   label: 'Codex',
@@ -26,6 +67,27 @@ export default {
       : ['-s', o.sandbox || 'workspace-write'];
     const common = ['--json', '--skip-git-repo-check'];
     if (o.model) common.push('-m', o.model);
+
+    // Point it somewhere other than OpenAI. Nothing is added at all unless the
+    // agent asked for it, so the ordinary case is byte-for-byte what it was.
+    if (o.baseUrl) {
+      const keyVar = o.apiKeyEnv || (o.apiKey ? LITERAL_KEY_VAR : '');
+      common.push(
+        '-c', `model_provider=${tomlString(PROVIDER_ID, 'provider id')}`,
+        // The agent's own label, because this name is what codex prints in its
+        // errors, and "Grok" there is worth more than "Studio provider".
+        '-c', `model_providers.${PROVIDER_ID}.name=${tomlString(agent?.label || agent?.id || 'Studio provider', 'label')}`,
+        '-c', `model_providers.${PROVIDER_ID}.base_url=${tomlString(o.baseUrl, 'baseUrl')}`,
+        // "responses" rather than "chat": recent codex speaks the Responses API
+        // and nothing else. Overridable because that is a vendor decision on
+        // both ends and this file should not be the reason a working endpoint
+        // cannot be used.
+        '-c', `model_providers.${PROVIDER_ID}.wire_api=${tomlString(o.wireApi || 'responses', 'wireApi')}`,
+      );
+      if (keyVar) {
+        common.push('-c', `model_providers.${PROVIDER_ID}.env_key=${tomlString(keyVar, 'apiKeyEnv')}`);
+      }
+    }
     const extra = Array.isArray(o.extraArgs) ? o.extraArgs : [];
 
     if (sessionId) {
@@ -37,6 +99,18 @@ export default {
       return ['exec', 'resume', sessionId, ...common, ...resumeSandbox, ...extra, prompt];
     }
     return ['exec', ...common, ...sandbox, ...extra, prompt];
+  },
+
+  /**
+   * A literal `apiKey` still has to arrive as a variable, because a codex
+   * provider names one rather than carrying the secret. `apiKeyEnv` is the
+   * better habit and needs nothing here: the variable is already in the
+   * environment the runner passes down.
+   */
+  env(agent) {
+    const o = agent?.options || {};
+    if (!o.apiKeyEnv && o.apiKey) return { [LITERAL_KEY_VAR]: String(o.apiKey) };
+    return {};
   },
 
   parse(obj) {

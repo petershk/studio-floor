@@ -69,6 +69,12 @@ ssh -N -L 4173:127.0.0.1:4173 root@<droplet-ip>
 open http://127.0.0.1:4173/?token=<STUDIO_TOKEN>
 ```
 
+**A note on the token.** Open the studio once as `https://…/?token=<STUDIO_TOKEN>`.
+The page takes the token out of the URL — so it is not left in the address bar,
+in a bookmark or in a screenshot — keeps it, and sends it as a bearer header on
+every request after that, including the event stream. If a studio ever refuses
+the token it says so on the page rather than going blank.
+
 **4. The tunnel**, so you can look from anywhere. In the Cloudflare dashboard:
 Zero Trust → Networks → Tunnels → create one, add a public hostname, point it at
 `http://studio:4173` (the compose service name, not localhost). Then Zero Trust
