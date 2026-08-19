@@ -61,6 +61,8 @@ let projectRoot = path.resolve(process.env.STUDIO_PROJECT_ROOT || process.cwd())
 let child = null;
 let shuttingDown = false;
 let started = false;
+/** Has the studio been pointed somewhere other than where it was started? */
+let moved = false;
 
 ensureUserDir();
 
@@ -140,6 +142,7 @@ async function run() {
         const { removed, path: p } = resetProjectState(req.path);
         console.log(removed ? `\n  reset — removed ${p}` : `\n  reset — nothing to remove at ${p}`);
       }
+      moved = true;
       projectRoot = path.resolve(req.path);
       console.log(`\n  switching to ${projectRoot}\n`);
     }
@@ -161,8 +164,15 @@ function once(root, recovery = null) {
     started = true;
     // A switch must not inherit the previous project's overrides, or every
     // project after the first would quietly share one config and one event log.
-    delete env.STUDIO_CONFIG;
-    delete env.STUDIO_STATE_DIR;
+    //
+    // Only after a switch, though. Dropping them unconditionally meant an
+    // operator who set STUDIO_STATE_DIR — which the Dockerfile does, and which
+    // the CLI's own help documents — had it silently ignored for the studio
+    // they actually started, and their event log went somewhere else entirely.
+    if (moved) {
+      delete env.STUDIO_CONFIG;
+      delete env.STUDIO_STATE_DIR;
+    }
 
     child = spawn(process.execPath, [SERVER, ...argv], { env, stdio: 'inherit' });
     child.on('exit', (code, signal) => {

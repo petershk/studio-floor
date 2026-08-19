@@ -1,38 +1,85 @@
 # A studio running somewhere other than your laptop.
 #
 #   export STUDIO_TOKEN=$(openssl rand -hex 32)
-#   docker compose up --build
+#   docker compose up -d --build
 #
-# Then open http://<host>:4173/?token=$STUDIO_TOKEN
+# Then reach it over an SSH tunnel:
+#
+#   ssh -N -L 4173:127.0.0.1:4173 you@your-host
+#   open http://127.0.0.1:4173/?token=$STUDIO_TOKEN
+#
+# ...or bring up the tunnel profile and reach it from anywhere:
+#
+#   export TUNNEL_TOKEN=...            # from the Cloudflare dashboard
+#   docker compose --profile tunnel up -d
+#
+# docs/CLOUD.md is the long version, including what this does and does not
+# protect you from.
 services:
   studio:
     build: .
     ports:
-      # Bind to loopback and reach it over an SSH tunnel or a reverse proxy that
-      # terminates TLS. Change to "4173:4173" only behind something that does.
+      # Loopback only. Reach it over an SSH tunnel, or through the cloudflared
+      # service below, which does not need this published at all. Change to
+      # "4173:4173" only behind something that terminates TLS and authenticates.
       - "127.0.0.1:4173:4173"
     volumes:
-      # The project the agents work on. Point this at your repository.
+      # Every repository the team works on, and the studio's memory of each of
+      # them — the event log lives inside the project it belongs to. This is the
+      # directory to back up, and the one `studio clone` writes into.
       - ./workspace:/workspace
-      # The event log. Losing this loses the team's entire memory, so it is a
-      # named volume rather than a bind mount into a temp directory.
+      # The state of the studio that runs before any repository is cloned.
       - studio-state:/state
-      # Provider credentials, read-only, mounted rather than baked in.
-      - ${HOME}/.claude:/root/.claude:ro
-      - ${HOME}/.codex:/root/.codex:ro
     environment:
-      # Required. The server rejects every /api/* route without it.
+      # Required. Every /api/* route is refused without it, and those routes can
+      # direct agents that run shell commands as root in this container.
       STUDIO_TOKEN: ${STUDIO_TOKEN:?set STUDIO_TOKEN before starting}
       STUDIO_HOST: 0.0.0.0
       STUDIO_PROJECT_ROOT: /workspace
       STUDIO_STATE_DIR: /state
-      # How the agents' CLI reaches the server from inside the same container.
+      # Where `studio clone` puts repositories, and therefore where the studio
+      # can be pointed. One directory, many projects.
+      STUDIO_WORKSPACE: /workspace
+      # How the agents' own CLI reaches the server from inside this container.
       STUDIO_URL: http://127.0.0.1:4173
+
+      # Cloning and pushing. A fine-grained token scoped to the repositories you
+      # want the team in, with contents:write if you want it to push branches.
+      # Anything running in this container can use it — that is the trade.
+      STUDIO_GIT_TOKEN: ${STUDIO_GIT_TOKEN:-}
+      STUDIO_GIT_NAME: ${STUDIO_GIT_NAME:-Studio Floor}
+      STUDIO_GIT_EMAIL: ${STUDIO_GIT_EMAIL:-studio-floor@localhost}
+
+      # Provider credentials. Set the ones your roster needs; the CLIs read
+      # these themselves. Prefer keys scoped to one project with a spend cap
+      # over copying an interactive login onto a remote host.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
     restart: unless-stopped
     # Agents run shell commands. This is a boundary, not a sandbox — see
     # docs/CLOUD.md before pointing this at anything you care about.
     security_opt:
       - no-new-privileges:true
+
+  # Reachable from any browser, with no inbound port open on the host and an
+  # identity check in front. Create the tunnel in the Cloudflare dashboard, put
+  # an Access policy on the hostname, and point it at http://studio:4173.
+  #
+  #   docker compose --profile tunnel up -d
+  #
+  # Without TUNNEL_TOKEN this service simply does not start, which is why it is
+  # behind a profile rather than always on.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN to use the tunnel profile}
+    depends_on:
+      - studio
+    restart: unless-stopped
 
 volumes:
   studio-state:

@@ -34,14 +34,23 @@ RUN npm link
 VOLUME ["/workspace", "/state"]
 WORKDIR /workspace
 
+# STUDIO_WORKSPACE is where `studio clone` puts repositories: one directory
+# holding many projects, so the studio can be pointed at any of them.
+#
+# GIT_TERMINAL_PROMPT=0 because a git operation that stops to ask for a password
+# on a headless box hangs until something kills it, and reads to the human as
+# the studio freezing. Failing at once with "could not read Username" is the
+# better failure, and the studio turns that into a sentence about tokens.
 ENV STUDIO_PROJECT_ROOT=/workspace \
     STUDIO_STATE_DIR=/state \
+    STUDIO_WORKSPACE=/workspace \
     STUDIO_HOST=0.0.0.0 \
-    STUDIO_PORT=4173
+    STUDIO_PORT=4173 \
+    GIT_TERMINAL_PROMPT=0
 
 EXPOSE 4173
 
-# There is no default token on purpose. `src/bin/start.mjs` warns loudly when it
+# There is no default token on purpose. `src/bin/serve.mjs` warns loudly when it
 # is bound off-loopback without one, and that warning should be reaching a human.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD curl -fsS "http://127.0.0.1:${STUDIO_PORT}/api/state" -H "Authorization: Bearer ${STUDIO_TOKEN}" >/dev/null || exit 1

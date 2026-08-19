@@ -52,8 +52,18 @@ fs.appendFileSync(runs, JSON.stringify({
   recovered: process.env.STUDIO_RECOVERED ? JSON.parse(process.env.STUDIO_RECOVERED) : null,
   restarted: process.env.STUDIO_RESTARTED || null,
   argv: process.argv.slice(2),
+  root: process.env.STUDIO_PROJECT_ROOT || null,
+  stateDir: process.env.STUDIO_STATE_DIR || null,
 }) + '\\n');
 const code = exits[seen];
+// Asking the supervisor to move us, the way the server's switch route does.
+if (code === 75 && process.env.STANDIN_SWITCH_TO) {
+  fs.mkdirSync(process.env.STUDIO_USER_DIR, { recursive: true });
+  fs.writeFileSync(
+    process.env.STUDIO_USER_DIR + '/switch.json',
+    JSON.stringify({ path: process.env.STANDIN_SWITCH_TO, reset: false, reason: 'test' }),
+  );
+}
 if (code === undefined) setInterval(() => {}, 1000);  // stay up
 else process.exit(code);
 `);
@@ -143,6 +153,25 @@ check('and its exit code is passed through', refused.status === EXIT_REFUSED, `e
 const recovered = supervise([1, 1, 1, 1, 1, 1, 0], { STUDIO_HEALTHY_AFTER_MS: '0' });
 check('a studio that ran healthily gets the full budget again',
   recovered.runs.length === 7, `${recovered.runs.length} runs`);
+
+// An operator who sets STUDIO_STATE_DIR — the Dockerfile does, and the CLI's
+// own help documents it — must have it honoured by the studio they started. It
+// was being deleted from every child's environment rather than only the ones
+// that follow a switch, so the event log quietly went somewhere else.
+const elsewhere = path.join(tmp, 'state-elsewhere');
+const kept = supervise([0], { STUDIO_STATE_DIR: elsewhere });
+check('an explicit state directory reaches the studio that was started',
+  kept.runs[0]?.stateDir === elsewhere, kept.runs[0]?.stateDir || 'not set');
+
+// It must not follow the studio to a different project, or every project after
+// the first would quietly share one event log.
+const second = fs.mkdtempSync(path.join(tmp, 'other-'));
+fs.writeFileSync(path.join(second, 'PROJECT.md'), '# Elsewhere');
+const switched = supervise([75, 0], { STUDIO_STATE_DIR: elsewhere, STANDIN_SWITCH_TO: second });
+check('a switch lands in the new project', switched.runs[1]?.root === second,
+  switched.runs[1]?.root || 'no second run');
+check('and does not carry the old state directory with it',
+  switched.runs[1]?.stateDir === null, switched.runs[1]?.stateDir || 'null');
 
 console.log('\n what the feed shows');
 const line = describe({
