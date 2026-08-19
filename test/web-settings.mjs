@@ -83,6 +83,7 @@ const configWith = (agent, vendors = VENDORS) => ({
   providers: ['claude', 'codex', 'grok'],
   protectedFields: {},
   running: [],
+  canRestart: true,
   secrets: {
     canStore: false, keySource: 'none', protects: '', steps: [], keep: '',
   },
@@ -120,6 +121,26 @@ async function panel(agent, vendors) {
     html: () => stub.byId('settings').innerHTML,
     edit: (path, value) => mod.__test_onEdit({ dataset: { path }, value, type: 'select-one' }),
   };
+}
+
+/** Render once with a particular canRestart, and return just the header. */
+async function panelWith({ canRestart }) {
+  const agent = { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } };
+  const cfg = configWith(agent);
+  if (canRestart === undefined) delete cfg.canRestart;
+  else cfg.canRestart = canRestart;
+  const stub = installStubBrowser({ state: {}, config: cfg });
+  globalThis.fetch = async (u) => ({
+    ok: true,
+    status: 200,
+    json: async () => (String(u).startsWith('/api/config') ? cfg
+      : String(u).startsWith('/api/projects') ? { ok: false } : { ok: true }),
+  });
+  instance += 1;
+  const mod = await import(`../src/web/settings.js?restart=${instance}`);
+  await mod.refreshSettings();
+  const html = stub.byId('settings').innerHTML;
+  return html.slice(0, html.indexOf('</div>', html.indexOf('set-actions')));
 }
 
 /** The model select's markup, so a change of shape fails loudly here. */
@@ -230,6 +251,30 @@ console.log('\n talking to an older studio');
   check('a studio that sends no company list still renders a usable control',
     /<option value="claude"/.test(noVendors.html()), 'no options rendered');
   check('and the newer one is unaffected', /value="anthropic" selected/.test(p.html()));
+}
+
+console.log('\n restarting');
+
+{
+  // The roster is resolved once at import, so changing the team always needs a
+  // restart — and telling somebody to find the terminal it was started in is
+  // not an instruction they can follow through a browser.
+  const p = await panel({ id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } });
+  check('a supervised studio offers a restart button where you would look for it',
+    /id="set-restart"/.test(p.html()) && !/id="set-restart"[^>]*disabled/.test(p.html()));
+}
+
+{
+  // Two different problems, and conflating them would accuse a perfectly good
+  // deployment of something it is not doing.
+  const noSupervisor = await panelWith({ canRestart: false });
+  check('a studio with no supervisor says that, rather than offering a button that kills it',
+    /disabled/.test(noSupervisor) && /without a supervisor/.test(noSupervisor), 'wrong reason');
+
+  const oldStudio = await panelWith({ canRestart: undefined });
+  check('and one too old to say is not accused of the same thing',
+    /disabled/.test(oldStudio) && /cannot restart itself/.test(oldStudio) && !/without a supervisor/.test(oldStudio),
+    'wrong reason');
 }
 
 console.log('\n labels');

@@ -89,6 +89,7 @@ function render() {
       </div>
       <div class="set-actions">
         <button class="btn" id="set-reload" type="button">Reload from file</button>
+        ${restartButton()}
         <button class="btn primary" id="set-save" type="button" ${dirty ? '' : 'disabled'}>Save</button>
       </div>
     </div>
@@ -371,6 +372,29 @@ function detectBlock() {
       <p class="muted">A CLI being installed does not prove it is signed in — only it knows that.
       A key found here is one an agent set to "an API key" would actually get.</p>` : ''}
     </div>`;
+}
+
+/**
+ * Restarting, offered where somebody would look for it.
+ *
+ * It used to appear only in the notice after a save that needed one, which is
+ * the moment you are told you need it and not the moment you go looking. The
+ * roster is resolved once at import, so changing the team always needs a
+ * restart, and "go and find the terminal it was started in" is not an
+ * instruction somebody reaching this through a browser can follow.
+ *
+ * Three states, because two of them are different problems: a studio with no
+ * supervisor cannot restart itself, and a studio too old to say either way is
+ * not the same thing and must not be accused of it.
+ */
+function restartButton(id = 'set-restart') {
+  if (data.canRestart) {
+    return `<button class="btn" id="${id}" type="button" title="Stop the agents and start this studio again">Restart studio</button>`;
+  }
+  const why = data.canRestart === false
+    ? 'This studio was started without a supervisor, so it cannot restart itself. Use `studio start`.'
+    : 'This studio is running a version that cannot restart itself. Restart it once by hand and the button works after that.';
+  return `<button class="btn" type="button" disabled title="${esc(why)}">Restart studio</button>`;
 }
 
 /**
@@ -869,7 +893,7 @@ ${target}
     };
   });
 
-  for (const id of ['set-restart', 'set-restart-2']) {
+  for (const id of ['set-restart', 'set-restart-2', 'set-restart-3']) {
     const b = $(id);
     if (!b) continue;
     b.onclick = async () => {
@@ -1146,9 +1170,8 @@ async function save() {
   const later = r.restartRequired?.length
     ? ` <b>The rest needs a restart</b> — ${esc(r.restartRequired.join('; '))}.`
       + (data.canRestart
-        ? ' <button class="btn primary" id="set-restart" type="button">Restart the studio</button>'
-        : ' This studio was started without a supervisor, so restart it yourself with'
-          + ' <code>studio start</code>.')
+        ? ' <button class="btn primary" id="set-restart-3" type="button">Restart it now</button>'
+        : ' This studio cannot restart itself — see the button at the top for why.')
     : '';
   setNotice(r.restartRequired?.length || r.warnings?.length ? 'warn' : 'ok',
     `Saved to the config file. ${live}${later}${warned}`);
