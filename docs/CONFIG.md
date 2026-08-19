@@ -149,9 +149,26 @@ somewhere else instead:
   "model": "kimi-k2-turbo-preview" }
 ```
 
-A **preset** supplies the endpoint and the name of the variable to read the key
-from. Built in: `kimi` and `glm`. Anything you state yourself wins over the
-preset, so it is a starting point rather than an override.
+A **preset** supplies the endpoint, the name of the variable to read the key
+from, and which CLI does the talking. Built in:
+
+| preset | CLI it uses | endpoint |
+| --- | --- | --- |
+| `kimi` | Claude Code | Moonshot's Anthropic-compatible API |
+| `glm` | Claude Code | Zhipu's Anthropic-compatible API |
+| `grok` | Codex | the xAI API |
+
+Anything you state yourself wins over the preset, so it is a starting point
+rather than an override.
+
+`grok` is the odd one, and worth understanding before you copy it. The studio
+drives CLIs rather than APIs — an adapter launches a program and reads its
+stdout — so a model needs *some* CLI to act as its harness. Grok's own CLI is a
+native binary rather than an npm package, so a container that installs its tools
+from npm cannot have one. Codex can be pointed at any provider, so it is the
+harness instead. That is also why the preset does not use xAI's
+Anthropic-compatible endpoint through Claude Code, which would have been the
+smaller change: xAI has deprecated that compatibility layer.
 
 Without a preset, state it directly:
 

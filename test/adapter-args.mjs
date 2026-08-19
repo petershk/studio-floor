@@ -220,4 +220,66 @@ assert.equal(legacy.runner.maxTurns, 42);
 assert.equal(legacy.agents[0].options.sandbox, 'read-only');
 assert.equal(legacy.agents[1].options.model, 'claude-opus-5');
 
+// ------------------------------------------------- codex, pointed elsewhere
+//
+// The Grok CLI is a native binary, so a container that installs its tools from
+// npm cannot have one, and the studio drives CLIs rather than APIs. Codex is
+// the harness instead: it takes a provider as config overrides, which is how an
+// agent reaches a model whose own CLI is not on the machine.
+const elsewhere = codex.args({
+  prompt,
+  sessionId: null,
+  fresh: true,
+  agent: {
+    id: 'grok',
+    label: 'Grok',
+    options: { baseUrl: 'https://api.x.ai/v1', apiKeyEnv: 'XAI_API_KEY', model: 'grok-4' },
+  },
+});
+const joined = elsewhere.join(' ');
+assert.ok(joined.includes('model_provider="studio"'), 'a pointed agent names a provider');
+assert.ok(joined.includes('model_providers.studio.base_url="https://api.x.ai/v1"'), 'and its base url');
+assert.ok(joined.includes('model_providers.studio.env_key="XAI_API_KEY"'), 'and the variable holding the key');
+// Codex reserves openai, ollama and lmstudio; a provider id colliding with one
+// would be rejected by codex itself, at the point of no return.
+assert.ok(!/model_provider="(openai|ollama|lmstudio)"/.test(joined), 'and never a reserved provider id');
+// The name is what codex prints in its own errors, so it is the agent's.
+assert.ok(joined.includes('model_providers.studio.name="Grok"'), 'named after the agent');
+// Recent codex speaks the Responses API and nothing else.
+assert.ok(joined.includes('model_providers.studio.wire_api="responses"'), 'over the responses wire api');
+
+// An agent that asked for nothing gets exactly what it always got. This is the
+// assertion that keeps the feature from being a tax on everyone else.
+const untouched = codex.args({ prompt, sessionId: null, fresh: true, agent: agentOf({ sandbox: 'workspace-write' }) });
+assert.ok(!untouched.join(' ').includes('model_provider'), 'an ordinary codex agent is unchanged');
+
+// A literal key still has to arrive as a variable, because codex names one.
+const literal = codex.env({ options: { apiKey: 'sk-literal' } });
+assert.equal(literal.STUDIO_CODEX_API_KEY, 'sk-literal', 'a literal key is passed through the environment');
+assert.deepEqual(codex.env({ options: { apiKeyEnv: 'XAI_API_KEY' } }), {}, 'a named variable needs nothing added');
+
+// The values are parsed as TOML by codex, so a quote in one would end the
+// string and start an argument. config.mjs already refuses these; this is the
+// second lock.
+assert.throws(
+  () => codex.args({
+    prompt,
+    sessionId: null,
+    fresh: true,
+    // " is a double quote: written this way so the attack is legible
+    // rather than fighting with the escaping of the file it lives in.
+    agent: { id: 'x', options: { baseUrl: 'https://evil" model_provider="openai' } },
+  }),
+  /cannot be passed to codex/,
+  'a quote in a base url is refused rather than escaped',
+);
+
+// The preset is the whole of what a human should have to write.
+const { PRESETS, applyPreset } = await import('../src/core/config.mjs');
+const grokPreset = applyPreset({ id: 'grok', preset: 'grok', model: 'grok-4' });
+assert.equal(grokPreset.provider, 'codex', 'the grok preset runs on the codex CLI');
+assert.equal(grokPreset.baseUrl, 'https://api.x.ai/v1');
+assert.equal(grokPreset.apiKeyEnv, 'XAI_API_KEY');
+assert.ok(!/anthropic/i.test(JSON.stringify(PRESETS.grok)), 'and not on the deprecated anthropic shim');
+
 console.log('adapter, registry and roster checks passed');
