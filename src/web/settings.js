@@ -30,6 +30,15 @@ let data = null;      // the last /api/config payload
 let draft = null;     // what the human has typed but not saved
 let dirty = false;
 let notice = null;    // { kind, text } shown above the form
+/**
+ * Which part of the panel is showing.
+ *
+ * One page of everything meant scrolling past the whole configuration to reach
+ * the thing you came for, and the four groups have almost nothing to do with
+ * each other: where the code is, what the project is for, who is on the team,
+ * and how the studio itself behaves.
+ */
+let tab = 'location';
 let detectResult = null;  // the last /api/detect answer
 let detecting = false;
 const modelsByVendor = {};  // what each provider last said it serves
@@ -114,19 +123,30 @@ function render() {
     </div>` : ''}
     ${dirty ? '<div class="set-notice">Unsaved changes.</div>' : ''}
 
-    ${projectBlock()}
-    ${updateBlock()}
+    <div class="set-tabs">
+      ${[
+    ['location', 'Where the code is'],
+    ['project', 'What it is for'],
+    ['team', `The team (${draft.agents.length})`],
+    ['studio', 'The studio itself'],
+  ].map(([id, label]) => `<button class="set-tab${tab === id ? ' on' : ''}" type="button"
+        data-settab="${id}">${label}</button>`).join('')}
+    </div>
 
+    ${tab === 'location' ? projectBlock() : ''}
+
+    ${tab === 'project' ? `
     <section class="set-block">
-      <h3>Project</h3>
-      <p class="muted">What the team is for. The brief is the file every agent reads
-      in full on its first turn.</p>
+      <h3>What the team is for</h3>
+      <p class="muted">The brief is the file every agent reads in full on its first turn, and it
+      outranks anything else they are told.</p>
       ${field('Name', 'text', draft.project.name, 'project.name', 'live')}
       ${field('Brief', 'text', draft.project.brief, 'project.brief', 'restart')}
       ${area('Goal', draft.project.goal, 'project.goal', 'live',
     'One paragraph, shown to agents before they read the brief. Optional.')}
-    </section>
+    </section>` : ''}
 
+    ${tab === 'team' ? `
     <section class="set-block">
       <h3>The team <span class="muted">— ${draft.agents.length} agent${draft.agents.length === 1 ? '' : 's'}</span></h3>
       <p class="muted">An <b>id</b> is what the team calls it; the <b>provider</b> is whose
@@ -139,7 +159,10 @@ function render() {
       ${detectBlock()}
       <div class="set-agents">${draft.agents.map((a, i) => agentCard(a, i, s)).join('')}</div>
       <button class="btn" id="set-add-agent" type="button">Add an agent</button>
-    </section>
+    </section>` : ''}
+
+    ${tab === 'studio' ? `
+    ${updateBlock()}
 
     <section class="set-block">
       <h3>Runner</h3>
@@ -182,7 +205,7 @@ function render() {
     ? `<div><span class="muted">adapters</span> ${data.config.adapters.map((a) => `<code>${esc(a)}</code>`).join(' ')}</div>`
     : ''}
       </div>
-    </section>
+    </section>` : ''}
   `;
 
   wire();
@@ -886,6 +909,16 @@ function wireProject() {
     }, 220);
   };
 
+  $('settings').querySelectorAll('[data-settab]').forEach((b) => {
+    b.onclick = () => {
+      tab = b.dataset.settab;
+      // Typing survives the move: the draft is one object across every tab, so
+      // switching to look at something else and coming back must not be a way
+      // to lose an edit.
+      render();
+    };
+  });
+
   $('settings').querySelectorAll('[data-projmode]').forEach((b) => {
     b.onclick = () => {
       projectMode = b.dataset.projmode;
@@ -1314,10 +1347,19 @@ function esc(s) {
 }
 
 /**
- * The edit handler, reachable from a test.
+ * The handful of things a test needs to drive.
  *
- * Switching provider has to rewrite four fields, drop a model that belonged to
- * the old one, and forget a credential status that described it — none of which
- * a stub browser can reach by clicking, because there is nothing to click.
+ * A stub browser has nothing to click: `querySelectorAll` returns an empty list,
+ * so none of the wiring in `wire()` is reachable from outside. Switching
+ * provider rewrites four fields, drops a model belonging to the old one and
+ * forgets a credential status that described it — behaviour worth asserting,
+ * and unreachable any other way. Kept as one object so this does not become a
+ * growing list of exports.
  */
-export const __test_onEdit = (input) => onEdit(input);
+export const __test = {
+  onEdit: (input) => onEdit(input),
+  setTab: (next) => {
+    tab = next;
+    render();
+  },
+};

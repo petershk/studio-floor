@@ -673,3 +673,24 @@ main {
 }
 .set-modes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .set-current + .set-current { margin-top: 8px; }
+
+/* Four groups that have almost nothing to do with each other: where the code
+   is, what it is for, who is on the team, and the studio's own behaviour. */
+.set-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 4px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.set-tab {
+  padding: 8px 14px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.set-tab:hover { color: var(--fg); }
+.set-tab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }

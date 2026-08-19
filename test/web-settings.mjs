@@ -104,7 +104,7 @@ const configWith = (agent, vendors = VENDORS) => ({
 
 /** A fresh panel over one agent. Each case gets its own module instance. */
 let instance = 0;
-async function panel(agent, vendors, projects = { ok: false }) {
+async function panel(agent, vendors, projects = { ok: false }, tabName = 'team') {
   const cfg = configWith(agent, vendors);
   const stub = installStubBrowser({ state: {}, config: cfg });
   globalThis.fetch = async (u) => ({
@@ -116,10 +116,15 @@ async function panel(agent, vendors, projects = { ok: false }) {
   instance += 1;
   const mod = await import(`../src/web/settings.js?case=${instance}`);
   await mod.refreshSettings();
+  // Every case here is about an agent card or the project block, and both live
+  // behind a tab now. The tab is part of the fixture rather than part of each
+  // assertion.
+  mod.__test.setTab(tabName);
   return {
     mod,
     html: () => stub.byId('settings').innerHTML,
-    edit: (path, value) => mod.__test_onEdit({ dataset: { path }, value, type: 'select-one' }),
+    edit: (path, value) => mod.__test.onEdit({ dataset: { path }, value, type: 'select-one' }),
+    setTab: (next) => mod.__test.setTab(next),
   };
 }
 
@@ -276,6 +281,7 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
       workspacePath: '/workspace',
       holds: [{ name: 'repo-a', path: '/workspace/repo-a', isGitRepo: true, isCurrent: false }],
     }),
+    'location',
   );
   const html = p.html();
   check('working in the workspace itself is called out as almost never what you want',
@@ -292,6 +298,7 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
     { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
     undefined,
     projectsPayload({ projectPath: '/workspace/repo-a', workspacePath: '/workspace', holds: [] }),
+    'location',
   );
   const html = p.html();
   check('a real project is not warned about', !/This is the <b>workspace<\/b>/.test(html));
@@ -316,6 +323,7 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
     { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
     undefined,
     payload,
+    'location',
   );
   check('a preview directory that differs from the work directory is named',
     p.html().includes('The preview pane serves') && p.html().includes('/repo/test_project'));
@@ -356,6 +364,41 @@ console.log('\n restarting');
   check('and one too old to say is not accused of the same thing',
     /disabled/.test(oldStudio) && /cannot restart itself/.test(oldStudio) && !/without a supervisor/.test(oldStudio),
     'wrong reason');
+}
+
+console.log('\n tabs');
+
+{
+  // One page of everything meant scrolling past the whole configuration to
+  // reach the thing you came for.
+  const p = await panel(
+    { id: 'a', provider: 'claude', model: 'claude-opus-5', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined,
+    projectsPayload({ projectPath: '/repo', workspacePath: '/ws', holds: [] }),
+    'team',
+  );
+  check('the team tab shows agents and not the directory settings',
+    p.html().includes('Agent name') && !p.html().includes('Where the team works'));
+
+  p.setTab('location');
+  check('and the location tab shows the directories and not the agents',
+    p.html().includes('Where the team works') && !p.html().includes('Agent name'));
+
+  p.setTab('project');
+  check('the brief lives on its own tab', /data-path="project.brief"/.test(p.html()));
+
+  p.setTab('studio');
+  check('and the budgets are still reachable rather than buried',
+    /data-path="runner.maxSpendUsd"/.test(p.html()));
+
+  // The draft is one object across every tab, so moving between them to look at
+  // something must not be a way to lose an edit.
+  p.setTab('team');
+  p.edit('agents.0.vendor.select', 'xai');
+  p.setTab('studio');
+  p.setTab('team');
+  check('an edit survives a trip to another tab',
+    /value="xai" selected/.test(p.html()));
 }
 
 console.log('\n labels');
