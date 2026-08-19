@@ -3,6 +3,7 @@ import path from 'node:path';
 import { PROJECT_ROOT, STUDIO_CMD } from '../core/paths.mjs';
 import { isUntouchedBrief, isInferredBrief } from '../core/projects.mjs';
 import { AGENTS } from '../core/roster.mjs';
+import { gitToken, workBranch } from '../core/git.mjs';
 
 /**
  * What the agents are actually told.
@@ -129,6 +130,82 @@ When your turn ends the studio will start you again as soon as something happens
 that concerns you, or when there is work to continue. Your session is preserved
 between turns, so you keep your memory of what you have done.
 `;
+}
+
+/**
+ * How this team is expected to use git.
+ *
+ * The lesson from the human-addressing bug: the protocol is only as real as
+ * what the prompt teaches. A box can hold a push credential and a branch
+ * convention can be written down somewhere, and if this text does not say so,
+ * every agent will invent its own convention or commit to the default branch.
+ *
+ * It states only what is true of the machine it is generated on. Promising a
+ * push on a box with no credentials produces agents that report a task blocked
+ * on an authentication failure they cannot fix.
+ */
+function gitSection() {
+  if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) {
+    return [
+      '=== THIS DIRECTORY IS NOT A GIT REPOSITORY ===',
+      '',
+      'There is no version control here, so there is no undo. Be correspondingly',
+      'careful with destructive edits, and say so if you think the human should',
+      'run `git init` before the team goes further.',
+    ].join('\n');
+  }
+
+  const canPush = Boolean(gitToken().token) && hasRemote();
+  const lines = [
+    '=== GIT ===',
+    '',
+    'Work on a branch, never on the default branch. One branch per task, named',
+    `after it: \`${workBranch('TASK-07')}\` for TASK-07.`,
+    '',
+    '  git checkout -b studio/task-07     start work on a task',
+    '  git add -A && git commit -m "..."  as you go, not once at the end',
+    '',
+    'Commit messages are read by the human and by whoever reviews the task. Say',
+    'what changed and why, not "wip".',
+  ];
+
+  if (canPush) {
+    lines.push(
+      '',
+      'This machine can push. When a task is ready for review:',
+      '',
+      '  git push -u origin studio/task-07',
+      '',
+      'Then say in the channel that you have pushed it, and name the branch. Never',
+      'push to the default branch, never force-push a branch anyone else may have',
+      'pulled, and never push anything containing a credential — the token this box',
+      'uses is not in any file you should be committing.',
+    );
+  } else {
+    lines.push(
+      '',
+      'This machine cannot push, and that is deliberate rather than broken. Commit',
+      'locally and say in the channel that the branch is ready; the human pulls from',
+      'here. Do not spend a turn trying to make a push work.',
+    );
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Does this repository have somewhere to push to?
+ *
+ * Read every time rather than cached. A studio that is handed a remote while it
+ * runs — a clone, a `git remote add` by an agent — must not keep telling the
+ * team for the rest of the day that this machine cannot push. One small file
+ * read against spawning a provider CLI is not a cost worth caching around.
+ */
+function hasRemote() {
+  try {
+    return /\[remote /.test(fs.readFileSync(path.join(PROJECT_ROOT, '.git', 'config'), 'utf8'));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -268,6 +345,8 @@ ${protocolFor()}
 
 ${projectSection(project)}
 
+${gitSection()}
+
 ${brief}
 
 ${waiting}
@@ -292,6 +371,20 @@ This is your first turn. Do this:
 
 ${human.length ? '0. Answer the human first. See above — they are waiting.\n' : ''}
 Then end your turn.`;
+}
+
+/**
+ * One line, every turn.
+ *
+ * The full section is only in the first-turn prompt, and a convention stated
+ * once decays into one convention per agent. This is the smallest thing that
+ * keeps it true, and it says nothing at all when there is no git here.
+ */
+function gitReminder() {
+  if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) return '';
+  const push = Boolean(gitToken().token) && hasRemote();
+  return '- Commit your work on a studio/<task-id> branch, never on the default branch'
+    + `${push ? ', and push it when the task is ready for review.' : '. This machine does not push.'}`;
 }
 
 export function turnPrompt(agent, { turn, reason, inbox, brief }) {
@@ -329,6 +422,7 @@ Reminder of the protocol: read the brief above, then act.
   or raise it for the human — do not spin.
 - If you have nothing useful to do, say so plainly and set your state to idle rather
   than inventing busywork.
+${gitReminder()}
 
 End your turn when you have finished a coherent unit of work.`;
 }

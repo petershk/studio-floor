@@ -208,5 +208,55 @@ check(
     && withInferred.includes('authorized that'),
 );
 
+// --------------------------------------------------------------------- git
+
+// Every agent is told how this team uses git, and it must describe THIS
+// machine. Promising a push where there is no credential produces agents that
+// report a task blocked on an authentication failure they cannot fix; staying
+// silent produces one branch convention per agent, or commits straight onto the
+// default branch.
+const { turnPrompt } = await import('../src/agents/prompts.mjs');
+const turnOf = () => turnPrompt(getAgent('breaker'), { turn: 2, reason: 'x', inbox: [], brief: 'b' });
+const firstOf = () => firstTurnPrompt(getAgent('breaker'), 'brief', { project: config.project });
+
+check('a directory with no git is told there is no undo',
+  firstOf().includes('NOT A GIT REPOSITORY'));
+check('and nothing about branches is claimed there',
+  !turnOf().includes('studio/<task-id>'));
+
+fs.mkdirSync(path.join(tmp, '.git'), { recursive: true });
+fs.writeFileSync(path.join(tmp, '.git', 'config'), '[core]\nrepositoryformatversion = 0\n');
+delete process.env.STUDIO_GIT_TOKEN;
+delete process.env.GH_TOKEN;
+delete process.env.GITHUB_TOKEN;
+
+const noPush = firstOf();
+check('a git repository gets the branch convention', noPush.includes('=== GIT ==='));
+check('and the convention is one branch per task, named after it', noPush.includes('studio/task-07'));
+check('a machine with no credentials says so plainly rather than promising a push',
+  noPush.includes('cannot push') && noPush.includes('deliberate rather than broken'));
+check('and tells them not to burn a turn on it', noPush.includes('Do not spend a turn'));
+check('every turn carries the one-line reminder', turnOf().includes('studio/<task-id>'));
+check('which also says this machine does not push', turnOf().includes('does not push'));
+
+// A remote alone is not enough, and neither is a token alone.
+fs.writeFileSync(path.join(tmp, '.git', 'config'),
+  '[remote "origin"]\nurl = https://github.com/o/r.git\n');
+check('a remote with no token still cannot push', firstOf().includes('cannot push'));
+
+process.env.STUDIO_GIT_TOKEN = 'test-token';
+const canPush = firstOf();
+check('a token and a remote together enable the push instructions',
+  canPush.includes('This machine can push') && canPush.includes('git push -u origin'));
+check('pushing to the default branch is forbidden in the same breath',
+  canPush.includes('Never') && canPush.includes('push to the default branch'));
+check('and the turn reminder changes with it', turnOf().includes('push it when the task is ready'));
+check('the token itself is never in the prompt', !canPush.includes('test-token'));
+
+fs.writeFileSync(path.join(tmp, '.git', 'config'), '[core]\n');
+check('losing the remote is noticed rather than cached',
+  firstOf().includes('cannot push'), 'the remote check must not be memoised for the life of the process');
+delete process.env.STUDIO_GIT_TOKEN;
+
 console.log(failures ? `\n${failures} roster check(s) failed\n` : '\nall roster checks passed\n');
 process.exit(failures ? 1 : 0);
