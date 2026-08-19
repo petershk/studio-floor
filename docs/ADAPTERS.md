@@ -133,3 +133,12 @@ launched — fast, free, and where flag regressions get caught.
 `test/adapter-check.mjs` launches the real CLIs with a trivial prompt and checks
 the stream parses. It spends tokens, so it is not in `npm test`. Run it when you
 add a provider, and after any vendor upgrade.
+
+## The other kind of adapter
+
+Everything above describes a subprocess adapter: launch a CLI per turn, read its
+stdout. There is a standard for this — the Agent Client Protocol — and a spike
+against a real ACP agent is in `test/acp-spike.mjs`, with what it proved, what it
+costs, and the one thing it does not yet give us in
+[docs/ACP.md](ACP.md). Grok has no ACP support, so subprocess adapters are not
+going away.

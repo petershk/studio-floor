@@ -69,7 +69,8 @@ const STUDIO_TESTS = [
  * must be green on a clean clone, so they are named here rather than quietly
  * omitted.
  */
-const OPT_IN = ['launch-check.mjs (needs a running studio)', 'adapter-check.mjs (spends provider tokens)'];
+const OPT_IN = ['launch-check.mjs (needs a running studio)', 'adapter-check.mjs (spends provider tokens)',
+  'acp-spike.mjs (spends provider tokens; see docs/ACP.md)'];
 
 // The source these tests actually exercise. Hashing the tests alone would let a
 // production change go unnoticed in the digest, which is the whole point of it.
