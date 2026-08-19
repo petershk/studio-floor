@@ -46,6 +46,7 @@ const STUDIO_TESTS = [
   'liveness.mjs',
   'web-loads.mjs',
   'web-token.mjs',
+  'web-settings.mjs',
   'supervisor-restart.mjs',
   'readme-examples.mjs',
   'roster.mjs',

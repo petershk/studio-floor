@@ -371,6 +371,29 @@ function detectBlock() {
 }
 
 /**
+ * The company options, and never an empty list.
+ *
+ * A select with no options renders as a blank box that cannot be used and does
+ * not say why, which is what a browser holding this page shows when it is
+ * talking to a studio old enough not to send the company list. Falling back to
+ * the raw providers keeps the control usable and honest — it is the same
+ * question asked in the older, worse vocabulary — and an agent whose setting
+ * matches nothing on offer keeps an option of its own rather than silently
+ * appearing to be something else.
+ */
+function vendorOptions(a, vendor, s) {
+  const list = s.vendors || [];
+  const opts = list.length
+    ? list.map((v) => ({ id: v.id, label: v.label }))
+    : (data.providers || []).map((pid) => ({ id: pid, label: pid }));
+
+  if (!opts.some((o) => o.id === vendor)) {
+    opts.unshift({ id: vendor, label: vendor === 'other' ? 'Other' : `${vendor} (from the file)` });
+  }
+  return opts.map((o) => `<option value="${esc(o.id)}"${o.id === vendor ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
+}
+
+/**
  * Company plus auth mode, written into the fields the config actually stores.
  *
  * This is the whole trick that lets the panel ask two human questions instead
@@ -393,6 +416,21 @@ function applyVendor(agent, vendorId, authMode) {
   // A company reachable only by key cannot be in login mode, and silently
   // leaving it there would show a mode that does nothing.
   if (!v.canLogin && agent.auth !== 'key') agent.auth = 'key';
+
+  // A model belongs to the company it came from. Switching Anthropic to xAI and
+  // leaving `claude-opus-5` in the box produces an agent that fails on its first
+  // turn with a model name the new provider has never heard of. A model the
+  // human typed themselves is left alone — only a suggestion this panel offered
+  // for some other company is cleared.
+  const suggestedElsewhere = (data.schema.vendors || [])
+    .filter((x) => x.id !== vendorId)
+    .some((x) => (x.models || []).includes(agent.model));
+  if (agent.model && suggestedElsewhere) agent.model = '';
+
+  // The credential status came from the server and describes the provider this
+  // agent used to be. Keeping it would warn about a key variable that no longer
+  // applies; the honest state until a save is "not checked yet".
+  delete agent.credentials;
 }
 
 /**
@@ -431,9 +469,14 @@ function authBlock(a, i, s) {
   const stored = cred.source === 'studio';
   const canStore = data.secrets?.canStore;
 
-  const status = cred.ok
-    ? `<span class="pill ok">${esc(cred.detail || 'ready')}</span>`
-    : `<span class="pill warn">${esc(cred.detail || 'no credentials')}</span>`;
+  // No credentials block at all means this agent was just re-pointed and the
+  // server has not been asked about it yet. Saying so beats showing the last
+  // provider's warning as though it were this one's.
+  const status = !a.credentials
+    ? '<span class="pill">not checked yet — save to see whether this can run</span>'
+    : (cred.ok
+      ? `<span class="pill ok">${esc(cred.detail || 'ready')}</span>`
+      : `<span class="pill warn">${esc(cred.detail || 'no credentials')}</span>`);
 
   return `
       <label class="set-f">
@@ -458,28 +501,14 @@ function authBlock(a, i, s) {
               <button class="btn" type="button" data-setkey="${esc(a.id)}:${i}">Save key</button>
               ${stored ? `<button class="btn ghost danger" type="button" data-clearkey="${esc(a.id)}">Remove</button>` : ''}
             </span>
-            <em class="muted">${canStore
-    ? `${esc(data.secrets?.protects || '')} It is never shown again and never written to the config file.`
-    : 'Saving will ask the studio to generate an encryption passphrase first — it has none yet.'}
-            A variable of the same name in the environment wins over anything stored here.</em>
+            <em class="muted">Stored encrypted, never shown again, and never written to the
+            config file.${canStore && data.secrets?.keySource === 'studio'
+    ? ' The encryption key sits beside it on this machine.' : ''}</em>
           </label>
           ${canStore ? '' : `
-          <div class="set-warn">
-            <b>No encryption passphrase yet.</b> Saving a key above will generate one and keep it
-            on this machine, which protects the key file but not a backup of the whole directory.
-            The stronger version is to supply one yourself, and it takes three commands:
-            <ol class="set-steps">
-              ${(data.secrets?.steps || []).map((step) => {
-    const [lead, ...rest] = String(step).split(/:\s+/);
-    const cmd = rest.join(': ');
-    return `<li>${esc(lead)}${cmd ? `<br><code class="set-cmd">${esc(cmd)}</code>` : ''}</li>`;
-  }).join('')}
-            </ol>
-            <div class="muted">${esc(data.secrets?.keep || '')}</div>
-            <div class="muted">Or skip all of that: put the key in
-            <code>${esc(cred.keyVar || 'the provider variable')}</code> where the studio runs,
-            and it will be found without being stored here at all.</div>
-          </div>`}` : ''}
+          <div class="set-note">Keys are stored encrypted. This studio will make the encryption
+          key itself when you save — it will tell you what that does and does not protect
+          first.</div>`}` : ''}
       </div>`;
 }
 
@@ -496,12 +525,17 @@ function agentCard(a, i, s) {
   <div class="set-agent" data-i="${i}">
     <div class="set-agent-head">
       <span class="set-agent-n">${i + 1}</span>
-      <input class="input" data-path="agents.${i}.id" value="${esc(a.id)}"
-             placeholder="id" aria-label="agent id">
-      <select class="input" data-path="agents.${i}.vendor.select" aria-label="provider">
-        ${(s.vendors || []).map((v) =>
-    `<option value="${esc(v.id)}"${v.id === vendor ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}
-      </select>
+      <label class="set-f">
+        <span>Agent name</span>
+        <input class="input" data-path="agents.${i}.id" value="${esc(a.id)}"
+               placeholder="what the team calls it">
+      </label>
+      <label class="set-f">
+        <span>Provider</span>
+        <select class="input" data-path="agents.${i}.vendor.select">
+          ${vendorOptions(a, vendor, s)}
+        </select>
+      </label>
       <div class="set-agent-move">
         <button class="btn ghost" data-move="${i}:-1" type="button" title="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
         <button class="btn ghost" data-move="${i}:1" type="button" title="Move down"${i === draft.agents.length - 1 ? ' disabled' : ''}>↓</button>
@@ -774,11 +808,14 @@ ${target}
       // it. A generated passphrase lives beside the keys it protects, and
       // saying so here is the difference between a choice and a surprise.
       if (!data.secrets?.canStore && !confirm(
-        'This studio has no encryption passphrase, so it will generate one and keep it on the '
-        + 'same disk as the keys it protects.\n\n'
-        + 'That protects the key file on its own, but a backup containing both is no better '
-        + 'than plaintext. The stronger option is to set STUDIO_SECRET_KEY where the studio runs.\n\n'
-        + 'Generate one and save the key?',
+        'The studio will make an encryption key and keep it in the same folder as your '
+        + 'saved keys.\n\n'
+        + 'That stops someone reading the key file on its own. It does not help if '
+        + 'someone copies the whole folder, or a backup of it, because they would get '
+        + 'both.\n\n'
+        + 'For stronger protection, set STUDIO_SECRET_KEY where the studio runs, and the '
+        + 'encryption key lives outside the folder instead.\n\n'
+        + 'Save the key now?',
       )) return;
       const r = await postKey(agent, value, { generateKey: !data.secrets?.canStore });
       if (input) input.value = '';
@@ -1087,3 +1124,12 @@ function badge(when) {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+/**
+ * The edit handler, reachable from a test.
+ *
+ * Switching provider has to rewrite four fields, drop a model that belonged to
+ * the old one, and forget a credential status that described it — none of which
+ * a stub browser can reach by clicking, because there is nothing to click.
+ */
+export const __test_onEdit = (input) => onEdit(input);

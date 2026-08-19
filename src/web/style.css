@@ -471,8 +471,13 @@ main {
 /* agents */
 .set-agents { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 .set-agent { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--panel); }
-.set-agent-head { display: flex; align-items: center; gap: 8px; }
+/* The head carries labelled fields now, so it aligns on their bottoms rather
+   than their middles — a label above one field and not another otherwise
+   knocks the row out of line. */
+.set-agent-head { display: flex; align-items: flex-end; gap: 8px; }
 .set-agent-head .input { max-width: 200px; }
+.set-agent-head .set-f { margin: 0; }
+.set-agent-head .set-agent-n { margin-bottom: 8px; }
 .set-agent-n {
   width: 20px; height: 20px; flex: 0 0 20px; border-radius: 50%;
   border: 1px solid var(--line); display: grid; place-items: center;
@@ -646,3 +651,13 @@ main {
 .set-detect-t { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 12px; }
 .set-detect-t td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
 .set-detect-t td:first-child { font-weight: 600; width: 110px; }
+
+/* A quiet statement of fact, not a warning. The warning that matters is in the
+   confirmation, where somebody is actually deciding. */
+.set-note {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--line);
+  color: var(--dim);
+  font-size: 12px;
+}
