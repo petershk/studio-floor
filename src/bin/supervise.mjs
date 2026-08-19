@@ -142,7 +142,12 @@ async function run() {
         const { removed, path: p } = resetProjectState(req.path);
         console.log(removed ? `\n  reset — removed ${p}` : `\n  reset — nothing to remove at ${p}`);
       }
-      moved = true;
+      // Only a move to somewhere else is a move. Restarting in place goes
+      // through this same path — it is a switch to the project already open —
+      // and treating that as a move would drop the operator's STUDIO_STATE_DIR
+      // and put the event log somewhere new, which in a container means the
+      // team's memory silently leaves the volume it was mounted on.
+      if (path.resolve(req.path) !== projectRoot) moved = true;
       projectRoot = path.resolve(req.path);
       console.log(`\n  switching to ${projectRoot}\n`);
     }
@@ -157,6 +162,11 @@ function once(root, recovery = null) {
     // because the variable stuck around would teach the human to ignore it.
     if (recovery) env.STUDIO_RECOVERED = JSON.stringify(recovery);
     else delete env.STUDIO_RECOVERED;
+    // So the studio knows something will start it again. Exiting is only a
+    // restart when a supervisor is watching; run serve.mjs directly and the
+    // same exit is just the end, which is not a button anyone should be
+    // offered without that distinction being real.
+    env.STUDIO_SUPERVISED = '1';
     // Only the first child opens a browser. A project switch or a self-update
     // comes back into a tab that is already sitting there waiting to reconnect,
     // so opening another one on every restart would pile them up.

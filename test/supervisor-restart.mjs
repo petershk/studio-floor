@@ -173,6 +173,16 @@ check('a switch lands in the new project', switched.runs[1]?.root === second,
 check('and does not carry the old state directory with it',
   switched.runs[1]?.stateDir === null, switched.runs[1]?.stateDir || 'null');
 
+// Restarting in place goes through the switch path — it is a switch to the
+// project already open — and must not be treated as a move. Dropping the
+// operator's overrides there would put the event log somewhere new, which in a
+// container means the team's memory quietly leaves the mounted volume.
+const inPlace = supervise([75, 0], { STUDIO_STATE_DIR: elsewhere, STANDIN_SWITCH_TO: tmp });
+check('a restart in place still lands in the same project',
+  inPlace.runs[1]?.root === tmp, inPlace.runs[1]?.root || 'no second run');
+check('and keeps the state directory it was given',
+  inPlace.runs[1]?.stateDir === elsewhere, inPlace.runs[1]?.stateDir || 'dropped');
+
 console.log('\n what the feed shows');
 const line = describe({
   kind: 'studio.recovered',

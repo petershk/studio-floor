@@ -17,6 +17,7 @@ import { updateStatus, pullUpdate } from '../core/update.mjs';
 import { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } from '../core/clone.mjs';
 import { resolveAuth } from '../core/auth.mjs';
 import { detect } from '../core/detect.mjs';
+import { fetchModels } from '../core/models.mjs';
 import {
   putSecret, listSecrets, removeSecret, secretNameFor, storageHint, generateKey, secretKey, NO_KEY,
 } from '../core/secrets.mjs';
@@ -177,6 +178,14 @@ export function createHttpServer(store, runner) {
         return json(res, updateStatus({ fetch: url.searchParams.get('check') === '1' }));
       }
 
+      // What a provider is serving right now, asked of the provider with the
+      // same key the agent would use. Falls back to the written list rather
+      // than failing, so the dropdown always has something in it.
+      if (p === '/api/models') {
+        const vendor = url.searchParams.get('vendor') || '';
+        return fetchModels(vendor).then((r) => json(res, { ok: true, vendor, ...r }));
+      }
+
       // What this machine can actually run. The same probe `studio doctor`
       // performs, so the panel and the CLI cannot disagree about it.
       if (p === '/api/detect') return json(res, { ok: true, vendors: detect() });
@@ -237,6 +246,13 @@ export function createHttpServer(store, runner) {
             }, 403);
           }
           return switchProject(store, runner, body, res);
+        }
+
+        if (p === '/api/restart') {
+          if (!sameOrigin(req)) {
+            return json(res, { ok: false, error: 'refused: this request came from another origin.' }, 403);
+          }
+          return restartStudio(store, runner, res);
         }
 
         if (p === '/api/secrets') {
@@ -583,10 +599,55 @@ function readConfigForUi() {
     // Whether this studio can store a key at all, so the panel offers the field
     // or explains why it cannot.
     secrets: { ...storageHint(), stored: listSecrets() },
+    // Whether this studio can restart itself, which depends on something being
+    // there to start it again.
+    canRestart: Boolean(process.env.STUDIO_SUPERVISED),
     // The roster this process is actually running, so the panel can say plainly
     // when the file and the running studio have diverged.
     running: AGENTS.map((a) => ({ id: a.id, provider: a.provider })),
   };
+}
+
+/**
+ * Restart this studio, in place.
+ *
+ * The roster is resolved once at import, so a change to it cannot apply live —
+ * the panel has always said so and then left the human to find the terminal it
+ * was started in, which on a box they reach only through a browser is not a
+ * thing they can do at all.
+ *
+ * Mechanically identical to a project switch, pointed at the project already
+ * open: ask the supervisor to start us again, then exit. Refused outright when
+ * nothing is supervising, because there the same exit is simply the end.
+ */
+async function restartStudio(store, runner, res) {
+  if (!process.env.STUDIO_SUPERVISED) {
+    return json(res, {
+      ok: false,
+      error: 'this studio was started without a supervisor, so exiting would stop it for good. '
+        + 'Start it with `studio start` for this button to work, or restart it yourself.',
+    }, 409);
+  }
+
+  store.append('human.control', null, {
+    action: 'restart',
+    text: 'restarted the studio from the settings panel',
+    via: 'browser',
+  });
+
+  // Answer first. The socket dies with the process, and a browser that sees a
+  // dropped connection instead of a reason cannot tell a restart from a crash.
+  json(res, { ok: true, restarting: PROJECT_ROOT });
+
+  setTimeout(async () => {
+    try {
+      await runner?.stopAll('the human restarted the studio');
+    } catch { /* leaving anyway */ }
+    requestSwitch(PROJECT_ROOT, { reset: false });
+    store.close?.();
+    process.exit(EXIT_SWITCH);
+  }, 250);
+  return undefined;
 }
 
 /**

@@ -195,6 +195,7 @@ export const VENDORS = {
     key: { provider: 'claude', apiKeyEnv: 'ANTHROPIC_API_KEY' },
     models: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
     keysAt: 'console.anthropic.com',
+    modelsApi: { url: 'https://api.anthropic.com/v1/models?limit=100', auth: 'x-api-key' },
   },
   openai: {
     label: 'OpenAI',
@@ -202,6 +203,7 @@ export const VENDORS = {
     key: { provider: 'codex', apiKeyEnv: 'OPENAI_API_KEY' },
     models: ['gpt-5.2-codex', 'gpt-5.2', 'o4-mini'],
     keysAt: 'platform.openai.com',
+    modelsApi: { url: 'https://api.openai.com/v1/models', auth: 'bearer' },
   },
   google: {
     label: 'Google',
@@ -209,6 +211,7 @@ export const VENDORS = {
     key: { provider: 'gemini', apiKeyEnv: 'GEMINI_API_KEY' },
     models: ['gemini-3-pro', 'gemini-3-flash'],
     keysAt: 'aistudio.google.com',
+    modelsApi: { url: 'https://generativelanguage.googleapis.com/v1beta/models', auth: 'query' },
   },
   xai: {
     label: 'xAI',
@@ -217,12 +220,14 @@ export const VENDORS = {
     key: { provider: 'codex', preset: 'grok', baseUrl: 'https://api.x.ai/v1', apiKeyEnv: 'XAI_API_KEY' },
     models: ['grok-4', 'grok-4-fast'],
     keysAt: 'console.x.ai',
+    modelsApi: { url: 'https://api.x.ai/v1/models', auth: 'bearer' },
   },
   moonshot: {
     label: 'Moonshot',
     key: { provider: 'claude', preset: 'kimi', baseUrl: 'https://api.moonshot.ai/anthropic', apiKeyEnv: 'MOONSHOT_API_KEY' },
     models: ['kimi-k2-turbo-preview'],
     keysAt: 'platform.moonshot.ai',
+    modelsApi: { url: 'https://api.moonshot.ai/v1/models', auth: 'bearer' },
   },
   zhipu: {
     label: 'Zhipu',
@@ -295,6 +300,10 @@ export function vendorList(knownProviders = []) {
       keyPreset: v.key?.preset || '',
       keyBaseUrl: v.key?.baseUrl || '',
       keyVar: v.key?.apiKeyEnv || '',
+      // Whether this company will tell us what it currently serves, given a
+      // key. Zhipu is absent on purpose: its endpoint was not verified, and a
+      // list that silently fails is worse than one that was never offered.
+      canListModels: Boolean(v.modelsApi),
     });
   }
   out.push({

@@ -122,9 +122,15 @@ async function panel(agent, vendors) {
   };
 }
 
-const modelValue = (html) => /agents\.0\.model" value="([^"]*)"/.exec(html)?.[1];
-const suggestions = (html) => [...html.matchAll(/<datalist id="models-0">(.*?)<\/datalist>/gs)]
-  .flatMap((m) => [...m[1].matchAll(/value="([^"]*)"/g)].map((x) => x[1]));
+/** The model select's markup, so a change of shape fails loudly here. */
+function modelSelect(html) {
+  const at = html.indexOf('data-path="agents.0.model"');
+  if (at < 0) throw new Error('no model field rendered at all');
+  return html.slice(at, html.indexOf('</select>', at));
+}
+const modelValue = (html) => /<option value="([^"]*)" selected>/.exec(modelSelect(html))?.[1];
+const suggestions = (html) => [...modelSelect(html).matchAll(/<option value="([^"]*)"/g)]
+  .map((m) => m[1]).filter(Boolean);
 const pill = (html) => {
   const at = html.indexOf('set-auth');
   return /<span class="pill[^"]*">([^<]*)</.exec(html.slice(at))?.[1] || '';
@@ -169,6 +175,22 @@ console.log('\nchoosing a provider\n');
   p.edit('agents.0.vendor.select', 'xai');
   check('a model the human typed themselves survives the switch',
     modelValue(p.html()) === 'my-finetune-v3', JSON.stringify(modelValue(p.html())));
+  // ...and stays selectable, even though the new provider has never heard of
+  // it. Dropping a human's setting out of the list silently is worse than
+  // showing one that may be stale.
+  check('and is still in the list rather than dropped from it',
+    suggestions(p.html()).includes('my-finetune-v3'), suggestions(p.html()).join(','));
+}
+
+{
+  // A datalist filters itself as you type, so picking one model made the rest
+  // vanish and read as the list having been lost. This is a select.
+  const p = await panel({ id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } });
+  check('the model field is a list to choose from, not a box to type in',
+    /<select class="input" data-path="agents\.0\.model">/.test(p.html()),
+    modelSelect(p.html()).slice(0, 80));
+  check('with an explicit option for leaving it to the provider',
+    modelSelect(p.html()).includes('the provider'), modelSelect(p.html()).slice(0, 140));
 }
 
 console.log('\n what the two answers decide between them');

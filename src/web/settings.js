@@ -28,6 +28,8 @@ let dirty = false;
 let notice = null;    // { kind, text } shown above the form
 let detectResult = null;  // the last /api/detect answer
 let detecting = false;
+const modelsByVendor = {};  // what each provider last said it serves
+let modelsLoading = null;
 
 async function load() {
   const [r, pr, ur] = await Promise.all([
@@ -95,6 +97,7 @@ function render() {
     ${divergent ? `<div class="set-notice warn">
       The running studio is <b>${esc(divergent.running)}</b> but the file now says
       <b>${esc(divergent.file)}</b>. Restart the studio for the file to take effect.
+      ${data.canRestart ? '<button class="btn primary" id="set-restart-2" type="button">Restart the studio</button>' : ''}
     </div>` : ''}
     ${dirty ? '<div class="set-notice">Unsaved changes.</div>' : ''}
 
@@ -371,6 +374,47 @@ function detectBlock() {
 }
 
 /**
+ * The model list, from the provider where possible.
+ *
+ * A select rather than a text box with completions: a datalist filters itself
+ * as you type, so choosing one model made the others disappear, which reads as
+ * the list having been lost.
+ *
+ * The options come from the provider when this studio has a key for it, and
+ * from the written suggestions otherwise — and the panel says which, because
+ * "these are the models" and "these are the models somebody typed into a source
+ * file months ago" deserve different amounts of trust. Whatever the agent is
+ * already set to always appears, even if the provider has stopped listing it,
+ * since silently dropping a human's setting is worse than showing a stale one.
+ */
+function modelField(a, i, vendorSpec, vendorId) {
+  const fetched = modelsByVendor[vendorId];
+  const list = fetched?.models?.length ? fetched.models : (vendorSpec?.models || []);
+  const options = [...new Set([a.model, ...list].filter(Boolean))];
+  const busy = modelsLoading === vendorId;
+
+  return `
+      <label class="set-f">
+        <span>Model <em class="muted">optional</em></span>
+        <select class="input" data-path="agents.${i}.model">
+          <option value=""${a.model ? '' : ' selected'}>the provider's default</option>
+          ${options.map((mdl) => `<option value="${esc(mdl)}"${mdl === a.model ? ' selected' : ''}>${esc(mdl)}</option>`).join('')}
+        </select>
+        <span class="set-key-actions">
+          ${vendorSpec?.canListModels ? `<button class="btn ghost" type="button" data-models="${esc(vendorId)}"${busy ? ' disabled' : ''}>
+            ${busy ? 'Asking…' : 'Refresh from provider'}</button>` : ''}
+        </span>
+        <em class="muted">${fetched?.source === 'provider'
+    ? `From ${esc(vendorSpec?.label || vendorId)}, just now.`
+    : fetched?.error
+      ? esc(fetched.error)
+      : (vendorSpec?.canListModels
+        ? 'Suggestions written into this project. Refresh to ask the provider what it actually serves.'
+        : 'Suggestions written into this project.')}</em>
+      </label>`;
+}
+
+/**
  * The company options, and never an empty list.
  *
  * A select with no options renders as a blank box that cannot be used and does
@@ -557,16 +601,7 @@ function agentCard(a, i, s) {
         <textarea class="input" rows="3" data-path="agents.${i}.persona">${esc(a.persona)}</textarea>
       </label>` : ''}
 
-      <label class="set-f">
-        <span>Model <em class="muted">optional</em></span>
-        <input class="input" data-path="agents.${i}.model" value="${esc(a.model || '')}"
-               list="models-${i}" placeholder="${esc(vendorSpec?.models?.[0] || "the CLI's default")}">
-        <datalist id="models-${i}">
-          ${(vendorSpec?.models || []).map((mdl) => `<option value="${esc(mdl)}"></option>`).join('')}
-        </datalist>
-        ${vendorSpec?.models?.length ? `<em class="muted">Suggestions, not a fixed list — model names
-        change faster than this panel does, and anything the provider accepts will work.</em>` : ''}
-      </label>
+      ${modelField(a, i, vendorSpec, vendor)}
 
       ${authBlock(a, i, s)}
 
@@ -834,6 +869,42 @@ ${target}
     };
   });
 
+  for (const id of ['set-restart', 'set-restart-2']) {
+    const b = $(id);
+    if (!b) continue;
+    b.onclick = async () => {
+      if (dirty && !confirm('You have unsaved changes. Restart anyway and lose them?')) return;
+      setNotice('', 'Restarting… the studio is coming back and this page will reconnect.');
+      render();
+      try {
+        const r = await (await fetch('/api/restart', { method: 'POST' })).json();
+        if (!r.ok) {
+          setNotice('warn', esc(r.error || 'the studio refused to restart'));
+          return render();
+        }
+      } catch {
+        // The socket dies with the process, which is a successful restart
+        // rather than a failure — so wait for it rather than crying wolf.
+      }
+      return waitForRestart();
+    };
+  }
+
+  $('settings').querySelectorAll('[data-models]').forEach((b) => {
+    b.onclick = async () => {
+      const vendorId = b.dataset.models;
+      modelsLoading = vendorId;
+      render();
+      try {
+        modelsByVendor[vendorId] = await (await fetch(`/api/models?vendor=${encodeURIComponent(vendorId)}`)).json();
+      } catch {
+        modelsByVendor[vendorId] = { ok: false, models: [], error: 'the studio did not answer' };
+      }
+      modelsLoading = null;
+      render();
+    };
+  });
+
   const detectBtn = $('set-detect');
   if (detectBtn) {
     detectBtn.onclick = async () => {
@@ -1069,8 +1140,15 @@ async function save() {
   const live = r.applied?.length
     ? `Applied now: ${r.applied.map((x) => `<code>${esc(x)}</code>`).join(' ')}.`
     : '';
+  // A restart used to be an instruction to go and find the terminal this was
+  // started in — which somebody reaching the studio only through a browser
+  // cannot do at all.
   const later = r.restartRequired?.length
-    ? ` <b>Restart the studio</b> for the rest — ${esc(r.restartRequired.join('; '))}.`
+    ? ` <b>The rest needs a restart</b> — ${esc(r.restartRequired.join('; '))}.`
+      + (data.canRestart
+        ? ' <button class="btn primary" id="set-restart" type="button">Restart the studio</button>'
+        : ' This studio was started without a supervisor, so restart it yourself with'
+          + ' <code>studio start</code>.')
     : '';
   setNotice(r.restartRequired?.length || r.warnings?.length ? 'warn' : 'ok',
     `Saved to the config file. ${live}${later}${warned}`);
