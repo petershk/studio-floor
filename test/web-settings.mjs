@@ -298,6 +298,38 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
   // Nothing cloned yet, so the only useful first offer is to clone something.
   check('an empty workspace offers cloning first',
     /class="btn primary"[\s\S]{0,80}data-projmode="clone"/.test(html), 'wrong default mode');
+  check('and an empty workspace is not shown as a place things live',
+    !html.includes('Repositories live in'));
+  check('nor offered as somewhere to pick from',
+    !/data-projmode="workspace"/.test(html));
+}
+
+{
+  // The thing being built is often a directory inside the project — this
+  // studio's own team builds in test_project/ — and the section read as being
+  // about the wrong thing entirely while never mentioning it.
+  const payload = projectsPayload({ projectPath: '/repo', workspacePath: '/ws', holds: [] });
+  payload.building = {
+    configured: 'test_project', path: '/repo/test_project', found: true, reason: 'serving /repo/test_project', source: 'configured',
+  };
+  const p = await panel(
+    { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined,
+    payload,
+  );
+  check('what the team is building is named, not only where it works',
+    p.html().includes('The thing being built is in') && p.html().includes('/repo/test_project'));
+
+  payload.building = {
+    configured: 'gone', path: '', found: false, reason: 'server.preview is "gone", which resolves to /repo/gone — that directory does not exist', source: 'configured',
+  };
+  const missing = await panel(
+    { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined,
+    payload,
+  );
+  check('and a build directory that is not there says so rather than showing a path that works',
+    /does not exist/.test(missing.html()));
 }
 
 console.log('\n restarting');

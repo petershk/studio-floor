@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { PROJECT_ROOT } from './paths.mjs';
+import { USER_DIR } from './paths.mjs';
 
 /**
  * Getting a repository onto the machine the studio runs on.
@@ -23,10 +23,22 @@ import { PROJECT_ROOT } from './paths.mjs';
  * handed to a shell, and `--` separates options from operands regardless.
  */
 
-/** Where repositories are kept. One directory holding many projects. */
+/**
+ * Where repositories are kept. One directory holding many projects.
+ *
+ * The default was the project's parent, which is defensible for `/workspace/repo`
+ * and catastrophic for `C:\studio-floor`: the parent is the root of the C
+ * drive, so the panel offered Windows, Program Files and $Recycle.Bin as
+ * projects to work in. A default that is sometimes the right directory and
+ * sometimes the whole machine is not a default.
+ *
+ * So it is a directory of the studio's own unless the operator names one.
+ * Containers name one; a laptop gets somewhere predictable that is never the
+ * root of anything.
+ */
 export const WORKSPACE_DIR = process.env.STUDIO_WORKSPACE
   ? path.resolve(process.env.STUDIO_WORKSPACE)
-  : path.dirname(PROJECT_ROOT);
+  : path.join(USER_DIR, 'workspace');
 
 const HTTPS = /^https:\/\/([a-z0-9.-]+\.[a-z]{2,})(?::\d+)?\/([\w.~-]+(?:\/[\w.~-]+)+?)(?:\.git)?\/?$/i;
 const SSH = /^(?:ssh:\/\/)?git@([a-z0-9.-]+\.[a-z]{2,}):([\w.~-]+(?:\/[\w.~-]+)+?)(?:\.git)?\/?$/i;

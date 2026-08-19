@@ -179,6 +179,21 @@ export function createHttpServer(store, runner) {
             isProject: path.resolve(WORKSPACE_DIR) === path.resolve(PROJECT_ROOT),
             holds: listWorkspace(),
           },
+          // What the team is actually building, when that is a directory inside
+          // the project rather than the project itself. This studio's own team
+          // builds in test_project/ and the panel never said so, which made the
+          // whole section read as being about the wrong thing.
+          building: (() => {
+            const pv = resolvePreview(SERVER_CONFIG.preview);
+            if (!pv.configured && !pv.root) return null;
+            return {
+              configured: pv.configured || '',
+              path: pv.root || '',
+              found: pv.found,
+              reason: pv.reason,
+              source: pv.source,
+            };
+          })(),
         });
       }
 

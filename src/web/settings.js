@@ -208,7 +208,7 @@ function projectBlock() {
 
   return `
     <section class="set-block">
-      <h3>Project</h3>
+      <h3>Where the team works</h3>
 
       <div class="set-current">
         <div class="muted">The team is working in</div>
@@ -225,12 +225,20 @@ function projectBlock() {
         </div>
       </div>
 
+      ${projects.building ? `<div class="set-current">
+        <div class="muted">The thing being built is in</div>
+        <div class="mono">${esc(projects.building.path || projects.building.configured)}</div>
+        <div class="muted">${projects.building.found
+    ? `the preview pane serves this${projects.building.source === 'configured' ? '' : ' — found by looking, not configured'}`
+    : `<b>${esc(projects.building.reason || 'that directory is not there')}</b>`}</div>
+      </div>` : ''}
+
       ${holdingPen ? `<div class="set-warn">
         This is the <b>workspace</b> — the directory repositories are cloned into — rather than a
         project. The team will try to work on the workspace itself, which is almost never what you
         want. Pick or clone a project below.</div>` : ''}
 
-      ${ws ? `<div class="set-current">
+      ${ws && (ws.holds?.length || ws.isProject) ? `<div class="set-current">
         <div class="muted">Repositories live in</div>
         <div class="mono">${esc(ws.path)}</div>
         <div class="muted">${ws.holds?.length
@@ -242,7 +250,7 @@ function projectBlock() {
       <div class="set-modes">
         ${[
     ['clone', 'Clone from git'],
-    ['workspace', 'Something already here'],
+    ...(ws?.holds?.length ? [['workspace', 'Something already here']] : []),
     ['path', 'A folder on this machine'],
   ].map(([id, label]) => `<button class="btn ${projectMode === id ? 'primary' : 'ghost'}"
           type="button" data-projmode="${id}">${label}</button>`).join('')}
@@ -259,8 +267,8 @@ function projectBlock() {
             ${cloning || !cloneDraft.trim() ? 'disabled' : ''}>
             ${cloning ? 'Cloning…' : 'Clone and work on it'}</button>
         </div>
-        <p class="muted">It lands in the workspace above and the studio moves into it. A private
-        repository needs a git token where the studio runs.</p>` : ''}
+        <p class="muted">It lands in <code>${esc(ws?.path || 'the workspace')}</code> and the studio
+        moves into it. A private repository needs a git token where the studio runs.</p>` : ''}
 
       ${projectMode === 'workspace' ? (ws?.holds?.length ? `
         <div class="set-recent">
