@@ -5,6 +5,7 @@
  *   studio init [--project DIR]        write a starter config and PROJECT.md
  *   studio start [--project DIR]       run the server and the agents
  *   studio doctor                      check that the configured CLIs exist
+ *   studio status                      is a studio running here, and since when
  *   studio agent <command> ...         the in-turn agent CLI (agents use this)
  *
  * `--project` is handled here, before anything from src/core is imported,
@@ -92,6 +93,10 @@ switch (command) {
     await doctor();
     break;
 
+  case 'status':
+    await status();
+    break;
+
   case 'agent':
     await load(SRC, 'cli', 'studio.mjs');
     break;
@@ -129,6 +134,7 @@ function usage() {
     studio start --no-open      do not open a browser
     studio start --only claude  run one agent
     studio doctor               check the configured provider CLIs are installed
+    studio status               is a studio running here — and if not, when it stopped
     studio agent <cmd>          the in-turn CLI agents use to talk to the studio
 
   Options
@@ -171,6 +177,37 @@ async function init() {
     3. studio doctor
     4. studio start
 `);
+}
+
+/**
+ * Is a studio running here?
+ *
+ * Deliberately does not open the event log or the store: this has to work when
+ * the studio is dead, has to be cheap enough for a cron line, and replaying a
+ * 18,000-event log to answer "is it up" would be its own reason not to run it.
+ * Everything it prints comes from the heartbeat file the studio leaves behind.
+ *
+ * Exits 0 when a studio is running and 1 when it is not, so a shell can ask.
+ */
+async function status() {
+  const { readBeat, describeBeat } = await load(SRC, 'core', 'heartbeat.mjs');
+  const { RUNTIME_FILE, STATE_DIR, PROJECT_ROOT } = await load(SRC, 'core', 'paths.mjs');
+
+  const beat = readBeat(RUNTIME_FILE);
+  const { state, headline, detail } = describeBeat(beat);
+  const width = Math.max(0, ...detail.map(([label]) => label.length));
+
+  console.log(`\n  ${headline}\n`);
+  for (const [label, value] of detail) console.log(`  ${label.padEnd(width)}   ${value}`);
+  if (!beat) {
+    console.log(`  project    ${PROJECT_ROOT}`);
+    console.log(`  state      ${STATE_DIR}`);
+    console.log('\n  studio start   to run one here');
+  } else if (state !== 'running') {
+    console.log('\n  studio start   to bring it back. Nothing is lost — it rebuilds from its log.');
+  }
+  console.log('');
+  process.exit(state === 'running' ? 0 : 1);
 }
 
 async function doctor() {

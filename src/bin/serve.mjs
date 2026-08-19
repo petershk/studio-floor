@@ -17,7 +17,10 @@ import { Store } from '../core/store.mjs';
 import { createHttpServer } from '../server/server.mjs';
 import { Runner, loadConfig } from '../agents/runner.mjs';
 import { loadUserAdapters, providers } from '../agents/adapters/index.mjs';
-import { PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT } from '../core/paths.mjs';
+import {
+  PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT, EXIT_SWITCH,
+} from '../core/paths.mjs';
+import { startHeartbeat } from '../core/heartbeat.mjs';
 import { AGENT_IDS, AGENTS, CONFIG, PROJECT } from '../core/roster.mjs';
 
 const argv = process.argv.slice(2);
@@ -71,6 +74,28 @@ store.append('studio.started', null, {
 
 const watchHost = HOST === '0.0.0.0' ? '<this-host>' : HOST;
 const watchUrl = `http://${watchHost}:${PORT}`;
+
+/**
+ * Leave proof of life somewhere that outlives this process.
+ *
+ * `studio status` reads it, the supervisor reads it, and neither of them can
+ * ask a dead studio how it is. The exit handler runs on every way out this
+ * process has — Ctrl-C, a project switch, an uncaught throw — so the mark is
+ * stamped with which one it was, and only a SIGKILL leaves it merely stale.
+ */
+const stopHeartbeat = startHeartbeat({
+  snapshot: () => ({
+    project: PROJECT_ROOT,
+    url: watchUrl,
+    seq: store.seq,
+    agents: Object.fromEntries(AGENT_IDS.map((id) => [id, store.state.agents[id]?.state || 'offline'])),
+  }),
+});
+process.on('exit', (code) => {
+  if (code === EXIT_SWITCH) stopHeartbeat('switching project', null);
+  else if (code) stopHeartbeat(`exited with code ${code}`, code);
+  else stopHeartbeat('shut down', 0);
+});
 
 console.log(`
   Studio Floor — ${PROJECT.name || 'untitled project'}
