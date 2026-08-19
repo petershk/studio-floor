@@ -64,7 +64,7 @@ export function element() {
  * @param {string} o.href        the page's own URL, including any ?token=
  * @returns everything a test needs to assert against afterwards
  */
-export function installStubBrowser({ state = {}, status = 200, href = 'http://127.0.0.1:4173/' } = {}) {
+export function installStubBrowser({ state = {}, config = null, status = 200, href = 'http://127.0.0.1:4173/' } = {}) {
   const elements = new Map();
   const byId = (id) => {
     if (!elements.has(id)) elements.set(id, { ...element(), id });
@@ -96,7 +96,7 @@ export function installStubBrowser({ state = {}, status = 200, href = 'http://12
     calls.push({ url: asString, authorization: headers.get('authorization') });
     const body = asString.startsWith('/api/state') ? state
       : asString.startsWith('/api/events') ? { events: [] }
-        : asString.startsWith('/api/config') ? { config: {}, schema: {} }
+        : asString.startsWith('/api/config') ? (config || { config: {}, schema: {} })
           : {};
     const answer = status === 200 ? body : { ok: false, error: 'unauthorised — this studio requires a token' };
     return {

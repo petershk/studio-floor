@@ -16,6 +16,7 @@ import {
 import { updateStatus, pullUpdate } from '../core/update.mjs';
 import { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } from '../core/clone.mjs';
 import { resolveAuth } from '../core/auth.mjs';
+import { detect } from '../core/detect.mjs';
 import {
   putSecret, listSecrets, removeSecret, secretNameFor, storageHint, generateKey, secretKey, NO_KEY,
 } from '../core/secrets.mjs';
@@ -175,6 +176,10 @@ export function createHttpServer(store, runner) {
         // reach out to a remote on its own.
         return json(res, updateStatus({ fetch: url.searchParams.get('check') === '1' }));
       }
+
+      // What this machine can actually run. The same probe `studio doctor`
+      // performs, so the panel and the CLI cannot disagree about it.
+      if (p === '/api/detect') return json(res, { ok: true, vendors: detect() });
 
       if (p === '/api/projects/inspect') {
         const dir = url.searchParams.get('path') || '';

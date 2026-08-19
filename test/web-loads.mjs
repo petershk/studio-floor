@@ -65,7 +65,42 @@ store.close();
 
 // -------------------------------------------------------------------- the run
 
-const { doc, calls, streams } = installStubBrowser({ state: STATE });
+// A config with agents in it, because the settings panel renders one card per
+// agent and a stub with none never reaches that code at all. A missing
+// variable in agentCard passed this file happily until a real page found it.
+const CONFIG = {
+  ok: true,
+  file: '/tmp/studio_floor/config.json',
+  config: {
+    project: { name: 'Web fixture', brief: 'PROJECT.md', goal: '' },
+    agents: [
+      { id: 'alpha', provider: 'grok', persona: 'adversary', auth: 'auto', credentials: { mode: 'auto', source: 'login', ok: true, detail: 'the CLI login' } },
+      { id: 'beta', provider: 'codex', preset: 'grok', baseUrl: 'https://api.x.ai/v1', apiKeyEnv: 'XAI_API_KEY', auth: 'key', credentials: { mode: 'backend', source: 'none', ok: false, detail: 'no key', keyVar: 'XAI_API_KEY' } },
+      { id: 'gamma', provider: 'somethingelse', auth: 'auto', credentials: { mode: 'auto', source: 'login', ok: true, detail: 'unknown provider' } },
+    ],
+    runner: { maxTurns: 200, maxWallMs: 0, maxSpendUsd: 0, turnTimeoutMs: 1, cooldownMs: 1, staggerMs: 1, commandLineBudget: 1, idleBackoffMs: [1] },
+    server: { host: '127.0.0.1', port: 4173, token: null },
+    adapters: [],
+  },
+  providers: ['claude', 'codex', 'grok', 'gemini'],
+  protectedFields: {},
+  running: [{ id: 'alpha', provider: 'grok' }],
+  secrets: { canStore: false, keySource: 'none', protects: '', steps: ['Generate one:  x'], keep: 'keep it' },
+  schema: {
+    vendors: [
+      { id: 'anthropic', label: 'Anthropic', models: ['claude-opus-5'], canLogin: true, canKey: true, loginCli: 'claude', keyCli: 'claude', keyPreset: '', keyBaseUrl: '', keyVar: 'ANTHROPIC_API_KEY' },
+      { id: 'xai', label: 'xAI', models: ['grok-4'], canLogin: true, canKey: true, loginCli: 'grok', keyCli: 'codex', keyPreset: 'grok', keyBaseUrl: 'https://api.x.ai/v1', keyVar: 'XAI_API_KEY' },
+      { id: 'other', label: 'Other', models: [], canLogin: true, canKey: true, loginCli: '', keyCli: '', keyPreset: '', keyBaseUrl: '', keyVar: '' },
+    ],
+    authModes: ['auto', 'key', 'login'],
+    personas: ['adversary', 'architect'],
+    sandboxes: ['read-only'],
+    permissionModes: ['default'],
+    agentFields: [], protectedFields: [], runnerFields: [], projectFields: [], liveFields: [], bounds: {},
+  },
+};
+
+const { doc, calls, streams } = installStubBrowser({ state: STATE, config: CONFIG });
 
 const WEB = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'src', 'web');
 const modules = fs.readdirSync(WEB).filter((f) => f.endsWith('.js'));
@@ -94,6 +129,15 @@ try {
 }
 if (started) {
   check('app.js starts up', true);
+  // The settings panel is lazy: nothing renders it until the tab is opened, so
+  // importing app.js alone never touched agentCard.
+  try {
+    const settings = await import(pathToFileURL(path.join(WEB, 'settings.js')).href);
+    await settings.refreshSettings();
+    check('the settings panel renders every agent', true);
+  } catch (e) {
+    check('the settings panel renders every agent', false, e.message);
+  }
   check('it asked the server for the state', calls.some((c) => c.url.startsWith('/api/state')), calls.map((c) => c.url).join(', '));
   check('it opened the event stream', streams.length > 0);
   check('it named the studio in the tab title', doc.title.includes('Web fixture'), doc.title);

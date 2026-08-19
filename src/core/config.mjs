@@ -165,67 +165,152 @@ export function applyPreset(agent) {
 }
 
 /**
- * The list a human actually chooses from.
+ * The list a human actually chooses from: companies.
  *
  * The config has two fields for this — `provider`, meaning which CLI, and
  * `preset`, meaning which endpoint that CLI is pointed at — and both are
- * accurate and neither is what someone picking a model is thinking about. They
- * are thinking "Anthropic" or "xAI". Worse, the two are not independent: xAI is
- * reachable *either* by its own CLI *or* through Codex against its API, which
- * as two dropdowns is a puzzle rather than a choice.
+ * accurate and neither is the question anyone is asking. They are asking for
+ * Anthropic, or xAI. Worse, the two are not independent: xAI is reachable
+ * either by its own CLI or through Codex against its API, which as two
+ * dropdowns is a puzzle rather than a choice.
  *
- * So the panel gets one list of backends, each of which knows the pair it
- * stands for. The config keeps both fields; only the question changes.
+ * So the panel asks for a company, and how it should authenticate. Those two
+ * answers decide the CLI between them:
+ *
+ *   xAI + this machine's login  →  the Grok CLI, which signs in and takes no key
+ *   xAI + an API key            →  the Codex CLI, pointed at the xAI API
+ *
+ * Nobody has to know that, which is the point.
+ *
+ * `models` are suggestions, not truth. This file has always refused to record a
+ * default model, because names move faster than a release does and a stale one
+ * silently routing to a retired model is worse than an empty box. An empty box
+ * is worse for somebody who has never used the vendor, though, so these are
+ * offered as completions over a field that still takes anything.
  */
-export function backends(knownProviders = []) {
-  const has = (id) => knownProviders.includes(id);
-  const list = [];
-  // What to call the CLI in "via …", so the label reads like a sentence rather
-  // than like an internal id.
-  const cliName = {
-    claude: 'Claude Code', codex: 'Codex CLI', gemini: 'Gemini CLI', grok: 'Grok CLI',
+export const VENDORS = {
+  anthropic: {
+    label: 'Anthropic',
+    login: { provider: 'claude' },
+    key: { provider: 'claude', apiKeyEnv: 'ANTHROPIC_API_KEY' },
+    models: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+    keysAt: 'console.anthropic.com',
+  },
+  openai: {
+    label: 'OpenAI',
+    login: { provider: 'codex' },
+    key: { provider: 'codex', apiKeyEnv: 'OPENAI_API_KEY' },
+    models: ['gpt-5.2-codex', 'gpt-5.2', 'o4-mini'],
+    keysAt: 'platform.openai.com',
+  },
+  google: {
+    label: 'Google',
+    login: { provider: 'gemini' },
+    key: { provider: 'gemini', apiKeyEnv: 'GEMINI_API_KEY' },
+    models: ['gemini-3-pro', 'gemini-3-flash'],
+    keysAt: 'aistudio.google.com',
+  },
+  xai: {
+    label: 'xAI',
+    // Two different CLIs, chosen by how you authenticate rather than by asking.
+    login: { provider: 'grok' },
+    key: { provider: 'codex', preset: 'grok', baseUrl: 'https://api.x.ai/v1', apiKeyEnv: 'XAI_API_KEY' },
+    models: ['grok-4', 'grok-4-fast'],
+    keysAt: 'console.x.ai',
+  },
+  moonshot: {
+    label: 'Moonshot',
+    key: { provider: 'claude', preset: 'kimi', baseUrl: 'https://api.moonshot.ai/anthropic', apiKeyEnv: 'MOONSHOT_API_KEY' },
+    models: ['kimi-k2-turbo-preview'],
+    keysAt: 'platform.moonshot.ai',
+  },
+  zhipu: {
+    label: 'Zhipu',
+    key: { provider: 'claude', preset: 'glm', baseUrl: 'https://api.z.ai/api/anthropic', apiKeyEnv: 'ZAI_API_KEY' },
+    models: ['glm-4.6'],
+    keysAt: 'z.ai',
+  },
+};
+
+/**
+ * Which company an agent is currently set to, worked out backwards from the
+ * fields the config actually stores. Anything unrecognised is "other" rather
+ * than being quietly relabelled as the first vendor in the list.
+ */
+export function vendorOf(agent = {}) {
+  if (agent.preset) {
+    const byPreset = Object.entries(VENDORS).find(([, v]) => v.key?.preset === agent.preset);
+    if (byPreset) return byPreset[0];
+  }
+  if (agent.baseUrl) {
+    const byUrl = Object.entries(VENDORS).find(([, v]) => v.key?.baseUrl === agent.baseUrl);
+    if (byUrl) return byUrl[0];
+    return 'other';
+  }
+  const byCli = Object.entries(VENDORS).find(([, v]) => v.login?.provider === agent.provider);
+  return byCli ? byCli[0] : 'other';
+}
+
+/**
+ * What a company plus an auth mode means in config terms.
+ *
+ * `auto` resolves like `login` where the vendor has its own CLI, because that
+ * is what "whatever this machine has" means for a vendor whose CLI can sign in.
+ * For a company reachable only by key, there is nothing to be ambiguous about.
+ */
+export function vendorConfig(vendorId, authMode = 'auto') {
+  const v = VENDORS[vendorId];
+  if (!v) return null;
+  const wantsKey = authMode === 'key' || !v.login;
+  const chosen = wantsKey ? v.key : (v.login || v.key);
+  if (!chosen) return null;
+  return {
+    provider: chosen.provider,
+    preset: chosen.preset || '',
+    baseUrl: chosen.baseUrl || '',
+    apiKeyEnv: chosen.apiKeyEnv || '',
   };
+}
 
-  // A vendor's own CLI first, where the studio has an adapter for it.
-  if (has('claude')) {
-    list.push({
-      id: 'claude', label: 'Anthropic — Claude Code', provider: 'claude', preset: '', vendor: 'Anthropic',
+/** The companies worth offering, given which adapters this studio has. */
+export function vendorList(knownProviders = []) {
+  const out = [];
+  for (const [id, v] of Object.entries(VENDORS)) {
+    const reachable = [v.login?.provider, v.key?.provider].filter(Boolean)
+      .some((p) => knownProviders.includes(p));
+    if (!reachable) continue;
+    out.push({
+      id,
+      label: v.label,
+      models: v.models || [],
+      keysAt: v.keysAt || '',
+      // Whether this company can be used without a key at all, which decides
+      // whether "this machine's login" is even offered for it.
+      canLogin: Boolean(v.login && knownProviders.includes(v.login.provider)),
+      canKey: Boolean(v.key && knownProviders.includes(v.key.provider)),
+      loginCli: v.login?.provider || '',
+      keyCli: v.key?.provider || '',
+      // So the panel can work out which company an agent already is, from the
+      // fields the config stores, without a second source of truth.
+      keyPreset: v.key?.preset || '',
+      keyBaseUrl: v.key?.baseUrl || '',
+      keyVar: v.key?.apiKeyEnv || '',
     });
   }
-  if (has('codex')) {
-    list.push({
-      id: 'codex', label: 'OpenAI — Codex CLI', provider: 'codex', preset: '', vendor: 'OpenAI',
-    });
-  }
-  if (has('gemini')) {
-    list.push({
-      id: 'gemini', label: 'Google — Gemini CLI', provider: 'gemini', preset: '', vendor: 'Google',
-    });
-  }
-  if (has('grok')) {
-    list.push({
-      id: 'grok-cli', label: 'xAI — Grok CLI', provider: 'grok', preset: '', vendor: 'xAI',
-      note: 'Signs in with `grok login`. This CLI takes no API key, so it needs a machine '
-        + 'somebody has logged into.',
-    });
-  }
-
-  // Then every preset, which is a vendor reached through somebody else's CLI.
-  for (const [id, p] of Object.entries(PRESETS)) {
-    if (!has(p.provider)) continue;
-    list.push({
-      id: `preset:${id}`,
-      label: `${p.label} — via ${cliName[p.provider] || p.provider}`,
-      provider: p.provider,
-      preset: id,
-      vendor: p.label,
-      baseUrl: p.baseUrl,
-      apiKeyEnv: p.apiKeyEnv,
-      note: p.note,
-    });
-  }
-
-  return list;
+  out.push({
+    id: 'other',
+    label: 'Other',
+    models: [],
+    keysAt: '',
+    canLogin: true,
+    canKey: true,
+    loginCli: '',
+    keyCli: '',
+    keyPreset: '',
+    keyBaseUrl: '',
+    keyVar: '',
+  });
+  return out;
 }
 
 /** The roster you get if you never write a config. */
@@ -708,9 +793,9 @@ export function saveRawConfig(file, raw) {
 /** Everything the settings panel needs to render itself, so the UI hardcodes nothing. */
 export function configSchema({ knownProviders = [] } = {}) {
   return {
-    // One list of things a human might pick, each knowing which CLI and which
-    // endpoint it stands for. `presets` stays for anything still reading it.
-    backends: backends(knownProviders),
+    // Companies, because that is what a human is choosing. Which CLI runs
+    // falls out of the company plus how it authenticates.
+    vendors: vendorList(knownProviders),
     authModes: AUTH_MODES,
     presets: Object.fromEntries(Object.entries(PRESETS).map(([k, v]) => [k, {
       label: v.label, provider: v.provider, baseUrl: v.baseUrl, apiKeyEnv: v.apiKeyEnv, note: v.note,

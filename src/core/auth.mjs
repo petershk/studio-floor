@@ -56,8 +56,8 @@ export function resolveAuth(record, adapter, { env = process.env } = {}) {
       unset: [],
       ok: present,
       detail: present
-        ? `pointed at ${o.baseUrl}${named ? `, key from ${named}` : ''}`
-        : `pointed at ${o.baseUrl}, but ${named ? `${named} is not set` : 'no key is configured'}`,
+        ? `pointed at ${o.baseUrl}${named ? `, with a key from ${named}` : ''}`
+        : `pointed at ${o.baseUrl}, but there is no key${named ? ` in ${named}` : ''} yet`,
     };
   }
 
@@ -99,10 +99,22 @@ export function resolveAuth(record, adapter, { env = process.env } = {}) {
     // and a value the operator put in the container must not be silently
     // overridden by something typed into a browser months earlier.
     if (fromEnv) {
-      return { mode: 'key', source: 'environment', keyVar, env: {}, unset: [], ok: true, detail: `${keyVar} from the environment` };
+      return {
+        mode: 'key',
+        source: 'environment',
+        keyVar,
+        env: {},
+        unset: [],
+        ok: true,
+        // Naming the variable is the point here and nowhere else: it says where
+        // the key came from, which is the one thing somebody debugging needs.
+        detail: `a key from ${keyVar} in the environment`,
+      };
     }
     if (stored) {
-      return { mode: 'key', source: 'studio', keyVar, env: { [keyVar]: stored }, unset: [], ok: true, detail: `${keyVar} from this studio's secret store` };
+      return {
+        mode: 'key', source: 'studio', keyVar, env: { [keyVar]: stored }, unset: [], ok: true, detail: 'a key stored in this studio',
+      };
     }
     return {
       mode: 'key',
@@ -111,16 +123,20 @@ export function resolveAuth(record, adapter, { env = process.env } = {}) {
       env: {},
       unset: [],
       ok: false,
-      detail: `no key: ${keyVar} is not set and none is stored here`,
+      detail: `no key yet — paste one, or set ${keyVar} where the studio runs`,
     };
   }
 
   // auto — what every agent did before any of this existed.
   if (fromEnv) {
-    return { mode: 'auto', source: 'environment', keyVar, env: {}, unset: [], ok: true, detail: `${keyVar} from the environment` };
+    return {
+      mode: 'auto', source: 'environment', keyVar, env: {}, unset: [], ok: true, detail: `a key from ${keyVar} in the environment`,
+    };
   }
   if (stored) {
-    return { mode: 'auto', source: 'studio', keyVar, env: { [keyVar]: stored }, unset: [], ok: true, detail: `${keyVar} from this studio's secret store` };
+    return {
+      mode: 'auto', source: 'studio', keyVar, env: { [keyVar]: stored }, unset: [], ok: true, detail: 'a key stored in this studio',
+    };
   }
   return {
     mode: 'auto',

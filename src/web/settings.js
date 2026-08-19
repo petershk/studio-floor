@@ -26,6 +26,8 @@ let data = null;      // the last /api/config payload
 let draft = null;     // what the human has typed but not saved
 let dirty = false;
 let notice = null;    // { kind, text } shown above the form
+let detectResult = null;  // the last /api/detect answer
+let detecting = false;
 
 async function load() {
   const [r, pr, ur] = await Promise.all([
@@ -111,10 +113,14 @@ function render() {
 
     <section class="set-block">
       <h3>The team <span class="muted">— ${draft.agents.length} agent${draft.agents.length === 1 ? '' : 's'}</span></h3>
-      <p class="muted">An <b>id</b> is what the team calls it. A <b>provider</b> is which CLI
-      runs it. They are not the same thing — several agents can share one provider with
-      different jobs, and they should have different personas, because agents given the
-      same framing agree with each other.</p>
+      <p class="muted">An <b>id</b> is what the team calls it; the <b>provider</b> is whose
+      model it runs on. Several agents can share a provider with different jobs, and they
+      should have different personas — agents given the same framing agree with each other,
+      which defeats the point of having several.</p>
+      <p class="muted">Which command-line tool actually runs is decided by the provider and
+      how it authenticates, so you never have to pick one: xAI signed in on this machine is
+      the Grok CLI, and xAI with an API key is the Codex CLI pointed at the xAI API.</p>
+      ${detectBlock()}
       <div class="set-agents">${draft.agents.map((a, i) => agentCard(a, i, s)).join('')}</div>
       <button class="btn" id="set-add-agent" type="button">Add an agent</button>
     </section>
@@ -326,16 +332,88 @@ async function postKey(agent, value, extra = {}) {
 }
 
 /**
- * Which entry in the backend list this agent is.
+ * What this machine can actually run.
  *
- * The config stores the pair — which CLI, and which endpoint it is pointed at —
- * and the panel shows one choice. A preset names itself; anything else is the
- * provider on its own.
+ * The same probe `studio doctor` performs, in the place where somebody is
+ * choosing — because the two questions people arrive with are "which of these
+ * do I already have" and "which need a key", and until now the only way to
+ * answer either was to leave the browser.
+ *
+ * It reports installed and credentialled separately, because they fail
+ * separately: a box with Claude Code installed and nobody signed into it is not
+ * the same as a box without it.
  */
-function backendIdOf(a) {
-  if (a.preset) return `preset:${a.preset}`;
-  if (a.provider === 'grok') return 'grok-cli';
-  return a.provider || '';
+function detectBlock() {
+  const rows = detectResult?.vendors || [];
+  return `
+    <div class="set-detect">
+      <button class="btn" id="set-detect" type="button"${detecting ? ' disabled' : ''}>
+        ${detecting ? 'Looking…' : 'Detect what is installed'}</button>
+      ${rows.length ? `<table class="set-detect-t">
+        ${rows.map((v) => `<tr>
+          <td>${esc(v.label)}</td>
+          <td>${v.login
+    ? (v.login.installed
+      ? `<span class="pill ok">${esc(v.login.cli)} installed</span>`
+      : `<span class="pill">${esc(v.login.cli)} not installed</span>`)
+    : '<span class="muted">no CLI of its own</span>'}</td>
+          <td>${v.key
+    ? (v.key.hasKey
+      ? `<span class="pill ok">key found in ${esc(v.key.source)}</span>`
+      : `<span class="pill">no ${esc(v.key.keyVar)}</span>`)
+    : ''}</td>
+          <td class="muted">${v.usable ? 'ready' : (v.keysAt ? `key from ${esc(v.keysAt)}` : '')}</td>
+        </tr>`).join('')}
+      </table>
+      <p class="muted">A CLI being installed does not prove it is signed in — only it knows that.
+      A key found here is one an agent set to "an API key" would actually get.</p>` : ''}
+    </div>`;
+}
+
+/**
+ * Company plus auth mode, written into the fields the config actually stores.
+ *
+ * This is the whole trick that lets the panel ask two human questions instead
+ * of four technical ones: xAI with a login is the Grok CLI, xAI with a key is
+ * the Codex CLI pointed at the xAI API, and nobody has to know that. Clearing
+ * baseUrl and preset on the way matters — leaving them behind is how an agent
+ * ends up labelled Anthropic while still talking to Moonshot.
+ */
+function applyVendor(agent, vendorId, authMode) {
+  const v = (data.schema.vendors || []).find((x) => x.id === vendorId);
+  if (!v || vendorId === 'other') return;
+  const wantsKey = authMode === 'key' || !v.canLogin;
+  Object.assign(agent, {
+    provider: wantsKey ? (v.keyCli || v.loginCli) : (v.loginCli || v.keyCli),
+    preset: wantsKey ? (v.keyPreset || '') : '',
+    baseUrl: wantsKey ? (v.keyBaseUrl || '') : '',
+    apiKeyEnv: wantsKey ? (v.keyVar || '') : '',
+  });
+  if (!agent.preset) delete agent.preset;
+  // A company reachable only by key cannot be in login mode, and silently
+  // leaving it there would show a mode that does nothing.
+  if (!v.canLogin && agent.auth !== 'key') agent.auth = 'key';
+}
+
+/**
+ * Which company an agent is set to.
+ *
+ * Read backwards out of the fields the config actually stores, so an agent
+ * configured by hand in the file shows up correctly here without anyone having
+ * written a company name anywhere.
+ */
+function vendorOf(a, s) {
+  const list = s.vendors || [];
+  if (a.preset) {
+    const byPreset = list.find((v) => v.keyPreset === a.preset);
+    if (byPreset) return byPreset.id;
+  }
+  if (a.baseUrl) {
+    const byUrl = list.find((v) => v.keyBaseUrl === a.baseUrl);
+    return byUrl ? byUrl.id : 'other';
+  }
+  const byCli = list.find((v) => v.loginCli && v.loginCli === a.provider);
+  return byCli ? byCli.id : 'other';
 }
 
 /**
@@ -373,7 +451,7 @@ function authBlock(a, i, s) {
         <div>${status}</div>
         ${mode === 'key' ? `
           <label class="set-f wide">
-            <span>API key ${cred.keyVar ? `<em class="muted">used as ${esc(cred.keyVar)}</em>` : ''}</span>
+            <span>API key</span>
             <input class="input" type="password" autocomplete="off" spellcheck="false"
                    id="key-${i}" placeholder="${stored ? 'a key is stored — type to replace it' : 'paste the key'}">
             <span class="set-key-actions">
@@ -408,20 +486,21 @@ function authBlock(a, i, s) {
 function agentCard(a, i, s) {
   const prot = data.protectedFields?.[a.id] || [];
   const isCustomPersona = a.persona && !s.personas.includes(a.persona);
-  // Without an option of its own, a provider the registry does not know would
-  // render as whatever sits first in the list — the panel would quietly show
-  // this agent running on codex. Give it a real, selected, labelled option.
-  const unknownProvider = a.provider && !data.providers.includes(a.provider);
+  // Which company this agent is set to, worked out from what the config stores
+  // rather than asked for separately. An unrecognised combination lands on
+  // "Other" instead of being relabelled as whatever sits first in the list.
+  const vendor = vendorOf(a, s);
+  const vendorSpec = (s.vendors || []).find((v) => v.id === vendor);
+  const detected = detectResult?.vendors?.find((v) => v.id === vendor);
   return `
   <div class="set-agent" data-i="${i}">
     <div class="set-agent-head">
       <span class="set-agent-n">${i + 1}</span>
       <input class="input" data-path="agents.${i}.id" value="${esc(a.id)}"
              placeholder="id" aria-label="agent id">
-      <select class="input" data-path="agents.${i}.backend.select" aria-label="provider">
-        ${(s.backends || []).map((b) =>
-    `<option value="${esc(b.id)}"${b.id === backendIdOf(a) ? ' selected' : ''}>${esc(b.label)}</option>`).join('')}
-        ${unknownProvider ? `<option value="" selected>${esc(a.provider)} (no adapter)</option>` : ''}
+      <select class="input" data-path="agents.${i}.vendor.select" aria-label="provider">
+        ${(s.vendors || []).map((v) =>
+    `<option value="${esc(v.id)}"${v.id === vendor ? ' selected' : ''}>${esc(v.label)}</option>`).join('')}
       </select>
       <div class="set-agent-move">
         <button class="btn ghost" data-move="${i}:-1" type="button" title="Move up"${i === 0 ? ' disabled' : ''}>↑</button>
@@ -447,7 +526,12 @@ function agentCard(a, i, s) {
       <label class="set-f">
         <span>Model <em class="muted">optional</em></span>
         <input class="input" data-path="agents.${i}.model" value="${esc(a.model || '')}"
-               placeholder="provider default">
+               list="models-${i}" placeholder="${esc(vendorSpec?.models?.[0] || "the CLI's default")}">
+        <datalist id="models-${i}">
+          ${(vendorSpec?.models || []).map((mdl) => `<option value="${esc(mdl)}"></option>`).join('')}
+        </datalist>
+        ${vendorSpec?.models?.length ? `<em class="muted">Suggestions, not a fixed list — model names
+        change faster than this panel does, and anything the provider accepts will work.</em>` : ''}
       </label>
 
       ${authBlock(a, i, s)}
@@ -488,10 +572,13 @@ function agentCard(a, i, s) {
       </label>
     </div>
 
-    ${unknownProvider ? `<div class="set-warn">
+    ${a.provider && !data.providers.includes(a.provider) ? `<div class="set-warn">
       No adapter is loaded for <b>${esc(a.provider)}</b>, so this agent cannot run and the
       studio will refuse to start while it is in the roster. Add the adapter to
-      <code>adapters</code> in the config file, or pick a provider above.</div>` : ''}
+      <code>adapters</code> in the config file, or pick a company above.</div>` : ''}
+    ${vendor === 'other' && a.provider ? `<div class="set-locked">
+      Configured in the file rather than from this list: <code>${esc(a.provider)}</code>${a.baseUrl
+    ? ` at <code>${esc(a.baseUrl)}</code>` : ''}. Choosing a company above would replace that.</div>` : ''}
     ${a.sandbox === 'full' ? `<div class="set-warn">
       <b>full</b> bypasses Codex's approvals and sandbox entirely. This agent can run
       any command on this machine.</div>` : ''}
@@ -710,6 +797,21 @@ ${target}
     };
   });
 
+  const detectBtn = $('set-detect');
+  if (detectBtn) {
+    detectBtn.onclick = async () => {
+      detecting = true;
+      render();
+      try {
+        detectResult = await (await fetch('/api/detect')).json();
+      } catch {
+        setNotice('warn', 'The studio did not answer the detection request.');
+      }
+      detecting = false;
+      render();
+    };
+  }
+
   $('proj-switch').onclick = () => go(false);
   $('proj-reset').onclick = () => go(true);
 
@@ -799,6 +901,15 @@ function renderKeepingCaret(id = 'proj-path') {
 function onEdit(input) {
   const path = input.dataset.path;
   const value = input.type === 'checkbox' ? input.checked : input.value;
+
+  if (path.endsWith('.vendor.select') || path.endsWith('.auth')) {
+    const i = Number(path.split('.')[1]);
+    if (path.endsWith('.auth')) draft.agents[i].auth = value;
+    const vendorId = path.endsWith('.vendor.select') ? value : vendorOf(draft.agents[i], data.schema);
+    applyVendor(draft.agents[i], vendorId, draft.agents[i].auth || 'auto');
+    dirty = true;
+    return render();
+  }
 
   if (path.endsWith('.backend.select')) {
     const i = Number(path.split('.')[1]);

@@ -162,7 +162,11 @@ check('so an inherited key cannot quietly win instead', Object.keys(login.env).l
 
 const wantsKey = resolveAuth(agent('claude', { auth: 'key' }), claude, { env: {} });
 check('asking for a key with no key is a failure, before a turn is spent', wantsKey.ok === false);
-check('and it says exactly what is missing', /ANTHROPIC_API_KEY/.test(wantsKey.detail) && /not set/.test(wantsKey.detail), wantsKey.detail);
+// The variable name earns its place here — this is the message somebody reads
+// while deciding where to put a key — and nowhere near a field they paste one
+// into, where it is an implementation detail wearing a label's clothes.
+check('and it says both ways to fix it, naming the variable',
+  /ANTHROPIC_API_KEY/.test(wantsKey.detail) && /paste one/.test(wantsKey.detail), wantsKey.detail);
 
 const noVar = resolveAuth(agent('grok', { auth: 'key' }), grok, { env: {} });
 check('a provider with no key variable says so rather than inventing one', noVar.ok === false);
