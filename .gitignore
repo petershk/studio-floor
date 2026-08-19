@@ -27,3 +27,8 @@ Thumbs.db
 
 .idea/
 .vscode/
+
+# Real secrets for docker compose: the token that guards the API, the provider
+# keys, the git token the team pushes with. `.env.example` is the committed
+# one and carries no values.
+.env

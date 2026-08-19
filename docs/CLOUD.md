@@ -34,41 +34,61 @@ holds. Putting that on the internet means:
 Start with an agent that cannot change anything (`sandbox: "read-only"`,
 `permissionMode: "default"`), on a private network, and widen from there.
 
-## The whole thing, on a VM
+## The whole thing, on a droplet
+
+Any Linux box that runs Docker will do. These are the exact steps for a
+DigitalOcean droplet, which is the one this was set up on.
+
+**1. The droplet.** Marketplace image **Docker on Ubuntu** — it saves installing
+Docker and nothing else about it matters. Basic / Regular, **2 vCPU / 4 GB /
+80 GB** ($24/mo), a **US region**: the agents' API calls egress from this box,
+and a European IP is the kind of thing that makes a provider login behave oddly
+for no benefit. Add your SSH key at creation. Turn on weekly backups (+20%) —
+the event log is the team's entire memory and there is no second copy.
+
+**2. Close everything.** A DO cloud firewall with inbound **SSH only**, ideally
+from your own IP. Nothing else ever needs to be open: the tunnel in step 4 dials
+out, and 4173 is bound to loopback inside the box regardless.
+
+**3. Bring it up.**
 
 ```bash
-# on the box
-git clone https://github.com/you/studio-floor && cd studio-floor
-export STUDIO_TOKEN=$(openssl rand -hex 32)
-export ANTHROPIC_API_KEY=...            # whatever your roster needs
-export STUDIO_GIT_TOKEN=...             # if you want private repos or pushes
+ssh root@<droplet-ip>
+git clone https://github.com/petershk/studio-floor && cd studio-floor
+cp .env.example .env
+openssl rand -hex 32          # paste into STUDIO_TOKEN
+vi .env                       # provider key(s), STUDIO_GIT_TOKEN if you want pushes
 docker compose up -d --build
+docker compose exec studio studio doctor    # are the CLIs there, do the keys work
 ```
 
-Nothing is exposed: 4173 is bound to loopback. To look in, either tunnel to it
-over SSH:
+At this point it is running and reachable only through an SSH tunnel:
 
 ```bash
-ssh -N -L 4173:127.0.0.1:4173 you@your-host
-open http://127.0.0.1:4173/?token=$STUDIO_TOKEN
+ssh -N -L 4173:127.0.0.1:4173 root@<droplet-ip>
+open http://127.0.0.1:4173/?token=<STUDIO_TOKEN>
 ```
 
-...or put a Cloudflare Tunnel in front of it, which is the option worth setting
-up if you intend to leave the team running:
+**4. The tunnel**, so you can look from anywhere. In the Cloudflare dashboard:
+Zero Trust → Networks → Tunnels → create one, add a public hostname, point it at
+`http://studio:4173` (the compose service name, not localhost). Then Zero Trust
+→ Access → Applications → add that hostname with a policy allowing your email
+only. Copy the tunnel token into `TUNNEL_TOKEN` in `.env` and:
 
 ```bash
-# create the tunnel in the Cloudflare dashboard, route a hostname to it,
-# point it at http://studio:4173, and put an Access policy on the hostname
-export TUNNEL_TOKEN=...
 docker compose --profile tunnel up -d
 ```
 
 No inbound port is opened, the identity check happens before anything reaches
-the studio, and `STUDIO_TOKEN` still sits behind it. SSE passes through
-cleanly, so the live feed stays live.
+the studio, and `STUDIO_TOKEN` still sits behind it. SSE passes through cleanly,
+so the live feed stays live.
 
 The `cloudflared` service is behind a compose profile: without `--profile
-tunnel` it does not start at all, so the SSH-tunnel setup stays the default.
+tunnel` it does not start, so the SSH-tunnel setup remains the default.
+
+**Do the Access policy before you route the hostname.** A tunnel with no policy
+in front of it is the studio on the public internet with a single token as its
+only guard.
 
 ## Pointing it at a repository
 
