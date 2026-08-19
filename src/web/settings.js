@@ -20,6 +20,8 @@ let checking = false;
 let projects = null;  // the last /api/projects payload
 let pathDraft = '';   // the directory the human is typing
 let probe = null;     // what /api/projects/inspect says about it
+let cloneDraft = '';  // the repository URL typed into the clone box
+let cloning = false;  // a clone in flight, so the button can say so
 let data = null;      // the last /api/config payload
 let draft = null;     // what the human has typed but not saved
 let dirty = false;
@@ -199,6 +201,19 @@ function projectBlock() {
           ${cur.legacyLayout ? ' · legacy .studio layout' : ''}
         </div>
       </div>
+
+      <label class="set-f wide">
+        <span>Clone a repository into the workspace</span>
+        <input class="input" id="proj-clone" value="${esc(cloneDraft)}" spellcheck="false"
+               placeholder="https://github.com/owner/repo">
+      </label>
+      <div class="set-actions">
+        <button class="btn primary" id="proj-clone-go" type="button"
+          ${cloning || !cloneDraft.trim() ? 'disabled' : ''}>
+          ${cloning ? 'Cloning…' : 'Clone and switch'}</button>
+      </div>
+      <p class="muted">It lands beside the other repositories and the studio moves into it.
+      A private repository needs STUDIO_GIT_TOKEN set where the studio runs.</p>
 
       <label class="set-f wide">
         <span>Point the team at another directory</span>
@@ -576,6 +591,56 @@ ${target}
 
   $('proj-switch').onclick = () => go(false);
   $('proj-reset').onclick = () => go(true);
+
+  const cloneBox = $('proj-clone');
+  if (cloneBox) {
+    cloneBox.oninput = () => {
+      const wasEmpty = !cloneDraft.trim();
+      cloneDraft = cloneBox.value;
+      // Only re-render when the button's enabled state actually changes, or
+      // every keystroke would rebuild the panel and lose the caret.
+      if (wasEmpty !== !cloneDraft.trim()) renderKeepingCaret('proj-clone');
+    };
+    cloneBox.onkeydown = (e) => { if (e.key === 'Enter') $('proj-clone-go')?.click(); };
+  }
+
+  const cloneGo = $('proj-clone-go');
+  if (cloneGo) {
+    cloneGo.onclick = async () => {
+      const url = cloneDraft.trim();
+      if (!url || cloning) return;
+      cloning = true;
+      setNotice('', `Cloning ${url}…`);
+      render();
+      let r;
+      try {
+        r = await (await fetch('/api/projects/clone', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ url }),
+        })).json();
+      } catch {
+        cloning = false;
+        setNotice('warn', 'The studio did not answer. The clone may still be running — check the terminal.');
+        return render();
+      }
+      cloning = false;
+      if (!r.ok) {
+        // The clone failed for a reason the human can act on, and git's own
+        // last words are worth more than a summary of them.
+        setNotice('warn', `${esc(r.error)}${r.output ? `<pre class="set-out">${esc(r.output)}</pre>` : ''}`);
+        return render();
+      }
+      // Cloned. Now move the studio into it, which is the existing switch and
+      // the existing wait for the replacement to come back.
+      cloneDraft = '';
+      pathDraft = r.path;
+      probe = null;
+      setNotice('', `Cloned into ${r.path} — switching…`);
+      render();
+      return go(false);
+    };
+  }
 }
 
 /**
@@ -597,13 +662,13 @@ async function waitForRestart() {
   render();
 }
 
-/** Re-render without stealing the caret out of the path box. */
-function renderKeepingCaret() {
-  const el = $('proj-path');
+/** Re-render without stealing the caret out of the box being typed in. */
+function renderKeepingCaret(id = 'proj-path') {
+  const el = $(id);
   const pos = el?.selectionStart ?? null;
   const focused = document.activeElement === el;
   render();
-  const next = $('proj-path');
+  const next = $(id);
   if (next && focused) {
     next.focus();
     if (pos != null) next.setSelectionRange(pos, pos);

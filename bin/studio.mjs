@@ -6,6 +6,7 @@
  *   studio start [--project DIR]       run the server and the agents
  *   studio doctor                      check that the configured CLIs exist
  *   studio status                      is a studio running here, and since when
+ *   studio clone <url>                 clone a repository into the workspace
  *   studio agent <command> ...         the in-turn agent CLI (agents use this)
  *
  * `--project` is handled here, before anything from src/core is imported,
@@ -97,6 +98,10 @@ switch (command) {
     await status();
     break;
 
+  case 'clone':
+    await clone();
+    break;
+
   case 'agent':
     await load(SRC, 'cli', 'studio.mjs');
     break;
@@ -135,6 +140,7 @@ function usage() {
     studio start --only claude  run one agent
     studio doctor               check the configured provider CLIs are installed
     studio status               is a studio running here — and if not, when it stopped
+    studio clone <url>          clone a repository into the workspace and work on it
     studio agent <cmd>          the in-turn CLI agents use to talk to the studio
 
   Options
@@ -146,6 +152,8 @@ function usage() {
     STUDIO_PROJECT_ROOT   the project the agents work in
     STUDIO_CONFIG         path to studio.config.json
     STUDIO_STATE_DIR      where the event log lives (default <project>/.studio)
+    STUDIO_WORKSPACE      where "studio clone" puts repositories
+    STUDIO_GIT_TOKEN      credentials for cloning and pushing private repositories
     STUDIO_PORT           default 4173
     STUDIO_HOST           default 127.0.0.1; set 0.0.0.0 to expose it
     STUDIO_TOKEN          required by every API route when set
@@ -208,6 +216,66 @@ async function status() {
   }
   console.log('');
   process.exit(state === 'running' ? 0 : 1);
+}
+
+/**
+ * Put a repository on this machine and tell the human what to do with it.
+ *
+ * Deliberately does not start or switch anything. A studio already running is
+ * a process bound to one project, and reaching in from a second process to
+ * re-point it is the supervisor's job, not this one's — the UI's Clone button
+ * goes through the API for exactly that reason. From a shell, the useful
+ * answer is the path and the one command that opens it.
+ */
+async function clone() {
+  const { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } = await load(SRC, 'core', 'clone.mjs');
+  const { inspect } = await load(SRC, 'core', 'projects.mjs');
+  const { ensureGitIdentity } = await load(SRC, 'core', 'git.mjs');
+
+  const args = process.argv.slice(2);
+  const flag = (name) => {
+    const i = args.indexOf(`--${name}`);
+    return i > -1 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : null;
+  };
+  const url = args.find((a) => !a.startsWith('--') && a !== flag('into') && a !== flag('name') && a !== flag('depth'));
+
+  if (!url) {
+    console.error('studio: which repository?\n\n  studio clone <url> [--into DIR] [--name NAME] [--depth 1]\n');
+    process.exit(1);
+  }
+
+  // A human at a shell can already clone anything they like, so a local path is
+  // allowed here. The HTTP route does not pass this.
+  const remote = parseRemote(url, { allowLocal: true });
+  if (!remote.ok) {
+    console.error(`studio: ${remote.error}\n`);
+    process.exit(1);
+  }
+
+  const into = flag('into') ? path.resolve(flag('into')) : WORKSPACE_DIR;
+  const name = flag('name') || remote.name;
+  const nameProblem = checkName(name);
+  if (nameProblem) {
+    console.error(`studio: ${nameProblem}\n`);
+    process.exit(1);
+  }
+
+  const credentials = ensureGitIdentity();
+  console.log(`\n  cloning ${remote.url}`);
+  console.log(`     into ${path.join(into, name)}`);
+  if (credentials.token) console.log(`    using ${credentials.tokenFrom}`);
+  console.log('');
+
+  const res = await cloneRepo({ url: remote.url, into, name, depth: Number(flag('depth')) || 0 });
+  if (!res.ok) {
+    console.error(`  studio: ${res.error}\n`);
+    process.exit(1);
+  }
+
+  const info = inspect(res.path);
+  console.log(`  cloned  ${res.path}`);
+  console.log(`          ${info.entries} item(s)${info.hasBrief ? ', has a brief' : ', no brief — the team will read it and draft one'}`);
+  console.log(`\n  studio start --project ${res.path}\n`);
 }
 
 async function doctor() {

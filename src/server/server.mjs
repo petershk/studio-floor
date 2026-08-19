@@ -14,6 +14,8 @@ import {
   inspect, problemsWith, recentProjects, requestSwitch, forgetProject,
 } from '../core/projects.mjs';
 import { updateStatus, pullUpdate } from '../core/update.mjs';
+import { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } from '../core/clone.mjs';
+import { ensureGitIdentity } from '../core/git.mjs';
 import {
   resolvePreview, previewVersion, resolvePreviewFile, PREVIEW_MIME,
 } from '../core/preview.mjs';
@@ -206,6 +208,17 @@ export function createHttpServer(store, runner) {
           return runUpdate(store, runner, res);
         }
 
+        if (p === '/api/projects/clone') {
+          if (!sameOrigin(req)) {
+            return json(res, {
+              ok: false,
+              error: 'refused: this request came from another origin. Cloning decides what code '
+                + 'lands on this machine for agents to run, so it is not writable cross-site.',
+            }, 403);
+          }
+          return cloneProject(store, body, res);
+        }
+
         if (p === '/api/projects') {
           if (!sameOrigin(req)) {
             return json(res, {
@@ -358,6 +371,78 @@ async function runUpdate(store, runner, res) {
  * the deliberate opposite: the supervisor deletes that state before the new
  * studio starts, while nothing is holding the files open.
  */
+/**
+ * Put a repository on this machine.
+ *
+ * Separate from the switch on purpose: this one acquires a directory and the
+ * other one moves the studio into it, and keeping them apart means a clone that
+ * lands somewhere unexpected can be looked at before the team is turned loose
+ * in it. The UI calls them in sequence; a human can call either alone.
+ *
+ * Local paths are refused here even though the CLI accepts them. A person at a
+ * shell on this box can already clone anything they like; a request arriving
+ * over HTTP is a different thing, and `file:///` is how a remote caller reaches
+ * the rest of the disk.
+ */
+async function cloneProject(store, body, res) {
+  const remote = parseRemote(body?.url, { allowLocal: false });
+  if (!remote.ok) return json(res, { ok: false, error: remote.error }, 400);
+
+  const name = String(body?.name || '').trim() || remote.name;
+  const problem = checkName(name);
+  if (problem) return json(res, { ok: false, error: problem }, 400);
+
+  const into = WORKSPACE_DIR;
+  const dest = path.join(into, name);
+  if (fs.existsSync(dest)) {
+    return json(res, {
+      ok: false,
+      error: `${dest} already exists — switch to it, or clone under another name`,
+      path: dest,
+      exists: true,
+    }, 409);
+  }
+
+  const credentials = ensureGitIdentity();
+  const result = await cloneRepo({
+    url: remote.url,
+    into,
+    name,
+    depth: Number(body?.depth) > 0 ? Number(body.depth) : 0,
+    // Shorter than the CLI's: a browser is holding this request open, and a
+    // clone that needs longer than two minutes wants a shell and a log, not a
+    // spinner.
+    timeoutMs: 120_000,
+  });
+
+  if (!result.ok) {
+    return json(res, { ok: false, error: result.error, output: tail(result.output) }, 502);
+  }
+
+  const info = inspect(result.path);
+  store.append('human.control', null, {
+    action: 'clone',
+    // The URL as rebuilt from its parts, never the caller's string, and never
+    // anything carrying a credential.
+    text: `cloned ${remote.url} into ${result.path}`,
+    via: 'browser',
+    target: result.path,
+    repo: remote.repo,
+    host: remote.host,
+  });
+
+  return json(res, {
+    ok: true,
+    path: result.path,
+    name,
+    info,
+    credentials: { token: credentials.token, from: credentials.tokenFrom },
+  });
+}
+
+/** The last few lines of git's own output, for a human who wants the detail. */
+const tail = (text, lines = 6) => String(text || '').trim().split('\n').slice(-lines).join('\n');
+
 async function switchProject(store, runner, body, res) {
   const { path: target, reset = false, forget = false } = body || {};
   if (typeof target !== 'string' || !target.trim()) {

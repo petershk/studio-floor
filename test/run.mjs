@@ -34,6 +34,7 @@ const STUDIO_TESTS = [
   'adapter-args.mjs',
   'config-panel.mjs',
   'projects.mjs',
+  'clone.mjs',
   'doctor.mjs',
   'update.mjs',
   'address.mjs',

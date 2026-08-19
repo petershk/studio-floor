@@ -606,3 +606,17 @@ main {
 .liveness.down { background: #2a1214; border-bottom-color: #7b3230; color: #ffb3ad; }
 .liveness.quiet { background: #2a2113; border-bottom-color: #a5762f; color: #e0a06a; }
 .liveness .lv-detail { opacity: .85; font-weight: 400; }
+
+/* git's own last words when a clone fails. Scrolls rather than stretching the
+   settings panel, and keeps its newlines: they are the useful part. */
+.set-out {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 120px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 11px/1.45 var(--mono);
+  white-space: pre-wrap;
+}
