@@ -645,10 +645,15 @@ export function handleAction(store, body) {
     }
 
     case 'decision': {
+      const question = requireText(body.question, 'question',
+        'a decision nobody can read the question of cannot be applied or argued with');
+      const supersedes = requireKnownDecision(s, body.supersedes);
+      requireNotAlreadyDecided(s, question, supersedes);
       const id = `DEC-${String(++s.counters.decision).padStart(2, '0')}`;
       const ev = store.append('decision.recorded', agent, {
         id,
-        question: body.question || '',
+        question,
+        supersedes,
         alternatives: normList(body.alternatives),
         arguments: normList(body.arguments),
         chosen: requireText(body.chosen, 'chosen',
@@ -1047,6 +1052,45 @@ function requireText(value, label, why) {
   const text = typeof value === 'string' ? value.trim() : '';
   if (text) return text;
   throw new Error(`${label} cannot be empty — ${why}`);
+}
+
+/**
+ * Two agents deciding the same thing at the same time.
+ *
+ * DEB-04 produced three decision records for one question — DEC-10, DEC-11 and
+ * DEC-12, by three different agents inside ten minutes, two of them with
+ * byte-identical question text. Every one of them was recorded, and every one
+ * appears in the brief under "do not reopen without new information". A future
+ * turn reading that has to work out for itself that three instructions are one.
+ *
+ * Superseding is legitimate: DEC-06 was correctly replaced when new information
+ * arrived. So this refuses the ACCIDENT and not the revision, and the way
+ * through is to name the decision being replaced — which is also the thing a
+ * later reader needs in order to follow the chain.
+ *
+ * It catches the clean case and not a paraphrase. DEC-11 would have been
+ * refused; my own DEC-12 reworded the question and would still have got in.
+ * The deeper fix is one path for recording a decision at all, which is a change
+ * to how debates close and not something to slip in behind a validation guard.
+ */
+const normQuestion = (q) => String(q || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+function requireKnownDecision(s, id) {
+  if (!id) return null;
+  if (s.decisions.some((d) => d.id === id)) return id;
+  const known = s.decisions.map((d) => d.id);
+  throw new Error(
+    `no such decision ${show(id)}${known.length ? ` — decisions are ${known.join(', ')}` : ' — none exist yet'}`,
+  );
+}
+
+function requireNotAlreadyDecided(s, question, supersedes) {
+  const already = s.decisions.find((d) => normQuestion(d.question) === normQuestion(question));
+  if (!already || already.id === supersedes) return;
+  throw new Error(
+    `${already.id} has already decided that question — ${show(already.chosen)}.`
+    + ` If this replaces it, pass --supersedes ${already.id}. If it is a different question, say so in the question.`,
+  );
 }
 
 function requireTask(s, id, label = 'task') {

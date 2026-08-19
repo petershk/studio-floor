@@ -539,6 +539,7 @@ export class Store extends EventEmitter {
           id: d.id,
           ts: ev.ts,
           question: d.question || '',
+          supersedes: d.supersedes || null,
           alternatives: d.alternatives || [],
           arguments: d.arguments || [],
           chosen: d.chosen || '',

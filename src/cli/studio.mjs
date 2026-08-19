@@ -48,7 +48,7 @@ const HELP = `studio — team channel for the multi-agent studio
   studio debate say <DEB-id> --stance "..." --because "..." [--critique "..."]
   studio debate close <DEB-id> --outcome "..." [--decision DEC-01]
 
-  studio decide --question "..." --chosen "..." --why "..." [--alternatives "a|b"] [--arguments "..."] [--participants codex,claude] [--task TASK-01]
+  studio decide --question "..." --chosen "..." --why "..." [--alternatives "a|b"] [--arguments "..."] [--participants codex,claude] [--task TASK-01] [--supersedes DEC-01]
 
   studio attention --kind decision|blocked|conflict|review --text "..." [--options "a|b"] [--ref TASK-01]
   studio withdraw <ATT-id> --reason "..."   take back an attention item you raised that went stale
@@ -152,6 +152,7 @@ async function main() {
         participants: flags.participants,
         humanRole: flags['human-role'],
         relatedTask: flags.task,
+        supersedes: flags.supersedes,
       }));
 
     case 'attention':

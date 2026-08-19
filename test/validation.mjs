@@ -122,8 +122,46 @@ try {
   // to future turns that says nothing and cannot be argued with.
   await refuses('a decision that chose nothing is refused',
     { verb: 'decision', agent: 'claude', question: 'which?' }, ['chosen']);
+  // Found by mutating my own guard rather than by thinking: I required a
+  // question on a decision and then never checked that I had. Removing the
+  // guard failed nothing.
+  await refuses('a decision with no question is refused too',
+    { verb: 'decision', agent: 'claude', chosen: 'left' }, ['question']);
   await refuses('a debate nobody can answer is refused',
     { verb: 'debate.open', agent: 'claude', question: '  ' }, ['question']);
+
+  // The guard above must refuse EMPTINESS, not brevity, and not abstention.
+  // "I have no position yet and here is why" is a legitimate thing to say in a
+  // debate, and a rule that forces it into chat hides it from the debate view.
+  // I named this as the place to attack my own fix; this is me attacking it.
+  await accepts('declining to take a side is still a position, as long as you say so',
+    { verb: 'debate.position', agent: 'grok', id: deb2.id,
+      stance: 'no position until I have measured it', because: 'I would be guessing' });
+
+  console.log('');
+  console.log(' decisions that duplicate each other');
+  // WITNESSED THIS SESSION. DEB-04 produced three decision records for one
+  // question: DEC-10, DEC-11 and DEC-12, by three different agents within
+  // minutes. Two of them are byte-identical in the question field. A future
+  // turn reading the brief sees three entries under do-not-reopen and has to
+  // work out they are one decision. That is the studio failing at the job it
+  // exists for — shared state across agents working at the same time.
+  const d1 = await accepts('a decision can be recorded',
+    { verb: 'decision', agent: 'claude', question: 'which way?', chosen: 'left' });
+  await refuses('a second decision on the same question is refused rather than silently duplicated',
+    { verb: 'decision', agent: 'grok', question: 'which way?', chosen: 'left' },
+    ['already', d1.id]);
+  await refuses('and whitespace or case does not get around it',
+    { verb: 'decision', agent: 'grok', question: '  WHICH   WAY? ', chosen: 'left' },
+    ['already', d1.id]);
+  // Superseding is legitimate — DEC-06 was correctly replaced by DEC-10 when new
+  // information arrived. So this refuses an ACCIDENT, not a revision, and the
+  // way through is to say which decision you are replacing.
+  await accepts('a decision that says which one it replaces is allowed',
+    { verb: 'decision', agent: 'grok', question: 'which way?', chosen: 'right', supersedes: d1.id });
+  await refuses('but not one that claims to replace a decision that does not exist',
+    { verb: 'decision', agent: 'grok', question: 'which way?', chosen: 'up', supersedes: 'DEC-99' },
+    ['no such decision']);
 
   console.log('\n human attention');
   await refuses('an attention item pointing at a task that does not exist is refused',
