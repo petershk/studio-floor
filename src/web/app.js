@@ -12,6 +12,7 @@ import { refreshSettings } from './settings.js';
 import { renderUsage } from './usage.js';
 import { showPreview, hidePreview } from './preview.js';
 import { startUpdateWatch } from './update-badge.js';
+import { livenessState, livenessTitle } from './liveness.js';
 
 const $ = (id) => document.getElementById(id);
 /**
@@ -55,6 +56,15 @@ let lastSeq = 0;
 // render happens below, before the drawer section is reached.
 let drawerRedraw = null;
 
+// Liveness bookkeeping. Declared up here rather than beside renderLiveness
+// because startup runs `refresh()` during module evaluation, and a `let` read
+// before its declaration is a ReferenceError that takes the whole page with it.
+let connected = false;
+let downSince = null;
+let attempts = 0;
+let lastEventAt = null;
+let baseTitle = 'Studio Floor';
+
 // ------------------------------------------------------------------ startup
 
 await refresh();
@@ -67,8 +77,47 @@ async function refresh() {
   const r = await fetch('/api/state');
   state = await r.json();
   adoptRoster(state);
+  // Seeded from the log rather than from page load: opening a tab on a studio
+  // that has been idle for an hour should say so immediately, not start the
+  // clock again and look healthy for ten minutes.
+  if (lastEventAt === null) {
+    const newestTs = state.timeline?.length ? Date.parse(state.timeline.at(-1).ts) : NaN;
+    lastEventAt = Number.isFinite(newestTs) ? newestTs : Date.now();
+  }
   renderAll();
 }
+
+// --------------------------------------------------------------- liveness
+
+/**
+ * Say plainly when nothing is happening.
+ *
+ * The only signal this page had was the word "reconnecting…" beside the studio
+ * name, and the studio once died under it for 87 minutes. Runs on its own timer
+ * as well as on events, because the interesting case is precisely the one where
+ * no event arrives to trigger a render.
+ */
+function renderLiveness() {
+  const el = $('liveness');
+  if (!el) return;
+  const agents = Object.values(state?.agents || {});
+  const { level, headline, detail } = livenessState({
+    connected,
+    downSince,
+    lastEventAt,
+    attempts,
+    now: Date.now(),
+    paused: !!state?.paused,
+    running: agents.filter((a) => a.state !== 'offline' && !a.paused).length,
+  });
+
+  el.hidden = level === 'ok';
+  el.className = `liveness ${level}`;
+  el.innerHTML = level === 'ok' ? ''
+    : `<strong>${esc(headline)}</strong> <span class="lv-detail">${esc(detail)}</span>`;
+  document.title = livenessTitle(level, baseTitle);
+}
+setInterval(renderLiveness, 5_000);
 
 /**
  * Learn the team from the server.
@@ -85,7 +134,10 @@ function adoptRoster(s) {
   ROSTER = next;
   AGENTS = next.map((a) => a.id);
   if (changed) fillAgentSelects();
-  if (s.project?.name) document.title = `${s.project.name} — studio`;
+  if (s.project?.name) {
+    baseTitle = `${s.project.name} — studio`;
+    document.title = baseTitle;
+  }
 }
 
 function labelOf(id) {
@@ -120,10 +172,18 @@ function connect(since = state.seq) {
   es.onopen = () => {
     $('conn-dot').classList.add('on');
     $('studio-sub').textContent = 'live';
+    connected = true;
+    downSince = null;
+    attempts = 0;
+    renderLiveness();
   };
   es.onerror = () => {
     $('conn-dot').classList.remove('on');
     $('studio-sub').textContent = 'reconnecting…';
+    connected = false;
+    if (!downSince) downSince = Date.now();
+    attempts += 1;
+    renderLiveness();
     // EventSource's own retry reuses the URL it was built with, so it would
     // reconnect forever at the cursor captured at page load. Rebuild it at the
     // last sequence we actually saw.
@@ -138,6 +198,7 @@ function connect(since = state.seq) {
   });
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
+    lastEventAt = Date.now();
     if (ev.seq <= lastSeq) return;
     lastSeq = ev.seq;
     if (ev.kind.startsWith('raw.')) {
@@ -160,6 +221,7 @@ function scheduleRefresh() {
 // ------------------------------------------------------------------- render
 
 function renderAll() {
+  renderLiveness();
   renderGlance();
   renderUsage(state);
   renderAgents();

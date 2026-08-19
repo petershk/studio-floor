@@ -42,6 +42,7 @@ const STUDIO_TESTS = [
   'launch-failed.mjs',
   'budgets.mjs',
   'liveness.mjs',
+  'web-loads.mjs',
   'readme-examples.mjs',
   'roster.mjs',
   'cli.mjs',

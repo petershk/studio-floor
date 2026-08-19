@@ -594,3 +594,15 @@ main {
 .u-b-fill { height: 100%; border-radius: 3px; background: #7bd88f; transition: width .3s ease; }
 /* Under 15% left. The colour is the warning; the number beside it is the detail. */
 .u-b-fill.low { background: #e0a06a; }
+
+/* The studio is not answering, or the team has gone quiet. Loud on purpose:
+   this exists because a grey "reconnecting…" went unread for 87 minutes. */
+.liveness {
+  padding: 9px 16px;
+  font-size: 12px;
+  letter-spacing: .02em;
+  border-bottom: 1px solid var(--line);
+}
+.liveness.down { background: #2a1214; border-bottom-color: #7b3230; color: #ffb3ad; }
+.liveness.quiet { background: #2a2113; border-bottom-color: #a5762f; color: #e0a06a; }
+.liveness .lv-detail { opacity: .85; font-weight: 400; }

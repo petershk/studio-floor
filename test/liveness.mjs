@@ -23,6 +23,9 @@ import { fileURLToPath } from 'node:url';
 import {
   startHeartbeat, readBeat, describeBeat, processAlive, since, STALE_AFTER_MS,
 } from '../src/core/heartbeat.mjs';
+import {
+  livenessState, livenessTitle, QUIET_AFTER_MS, DOWN_GRACE_MS,
+} from '../src/web/liveness.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(HERE, '..', 'bin', 'studio.mjs');
@@ -133,6 +136,48 @@ check('a second stop does not overwrite the first reason',
 check('a torn or missing file reads as no beat, not as an exception',
   readBeat(path.join(tmp, 'nope.json')) === null
   && (fs.writeFileSync(path.join(tmp, 'half.json'), '{"pid":'), readBeat(path.join(tmp, 'half.json')) === null));
+
+console.log('\n the page');
+
+// The page cannot read the heartbeat — it may not be able to reach the machine
+// at all — so it judges from what does and does not arrive. Same question,
+// different evidence.
+const page = (o) => livenessState({ connected: true, downSince: null, lastEventAt: NOW, now: NOW, running: 2, ...o });
+
+check('a connected studio with recent events shows nothing at all',
+  page({}).level === 'ok');
+
+check('a one-second blip is not an outage',
+  page({ connected: false, downSince: NOW - (DOWN_GRACE_MS - 500) }).level === 'ok');
+
+const down = page({ connected: false, downSince: NOW - 4 * MINUTE, lastEventAt: NOW - 5 * MINUTE, attempts: 14 });
+check('a connection that stays down is called out', down.level === 'down');
+check('it says how long and how many attempts',
+  down.detail.includes('4 minutes') && down.detail.includes('14 reconnect'), down.detail);
+// The page genuinely cannot tell a dead studio from a closed laptop lid, and
+// saying "THE STUDIO IS NOT RUNNING" would be a guess presented as a fact.
+check('it claims only what a browser can know, and points at what can settle it',
+  down.headline.includes('NOTHING IS REACHING THIS PAGE') && down.detail.includes('studio status'),
+  `${down.headline} / ${down.detail}`);
+
+// THE SILENCE NO CONNECTION CHECK FINDS: the studio answers every request and
+// the team has not moved in an hour.
+const quiet = page({ lastEventAt: NOW - 61 * MINUTE });
+check('a studio that is up while nothing happens is called out too', quiet.level === 'quiet');
+check('and it says for how long', quiet.headline.includes('1H 1M'), quiet.headline);
+check('inside the quiet window it stays silent',
+  page({ lastEventAt: NOW - (QUIET_AFTER_MS - MINUTE) }).level === 'ok');
+
+// A silence the human asked for is not a fault, and warning about it is how a
+// warning becomes wallpaper.
+check('a paused team is silent on purpose', page({ lastEventAt: NOW - 61 * MINUTE, paused: true }).level === 'ok');
+check('a stopped team is too', page({ lastEventAt: NOW - 61 * MINUTE, running: 0 }).level === 'ok');
+
+// The 87 minutes were 87 minutes because nobody was looking at the tab.
+check('the tab title carries it into a background tab',
+  livenessTitle('down', 'X').includes('no contact')
+  && livenessTitle('quiet', 'X').includes('idle')
+  && livenessTitle('ok', 'X') === 'X');
 
 console.log('\n studio status');
 
