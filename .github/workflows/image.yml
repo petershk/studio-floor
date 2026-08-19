@@ -1,0 +1,98 @@
+# Publishing the container image.
+#
+# Two audiences, one artefact. Somebody self-hosting should not need a
+# toolchain to run this — `docker run ghcr.io/<owner>/studio-floor` is the whole
+# instruction — and anything that runs instances of the studio needs a version
+# it can pin, so that a push to main does not silently restart somebody else's
+# team onto untested code.
+#
+# So `main` publishes `edge`, and a tag publishes a real version. Nothing that
+# consumes this should follow `edge`.
+name: image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # A pull request builds the image and never pushes it: the Dockerfile is code,
+  # and it broke once already in a way nothing else would have caught.
+  pull_request:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        # Only when something will actually be pushed. A pull request from a
+        # fork has no credentials, and asking for them would be the wrong shape
+        # of favour to do a contributor.
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          # `edge` moves with main. A version tag produces 1.2.3, 1.2 and 1, so
+          # a service can pin as tightly as it wants to. `latest` follows
+          # releases only — never main — because "latest" that means "newest
+          # commit" is how an unattended deploy ends up on unreleased code.
+          tags: |
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=pr
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # linux/amd64 only, deliberately. The image installs the vendor CLIs
+          # from npm, and an arm64 build of one that does not exist fails at run
+          # time looking like a broken install rather than a wrong architecture.
+          # Add arm64 when each CLI in the image is confirmed to have one.
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prove the image runs
+        # Building is not the same as working: the first version of the compose
+        # file built perfectly and could not start. This boots the server with
+        # no agents and asks it whether it is alive.
+        run: |
+          set -e
+          docker build -t studio-floor:test .
+          docker run -d --name probe -e STUDIO_TOKEN=probe-token \
+            -e STUDIO_HOST=127.0.0.1 -p 127.0.0.1:4173:4173 studio-floor:test start --no-agents --no-open
+          for i in $(seq 1 30); do
+            if curl -fsS -H "Authorization: Bearer probe-token" http://127.0.0.1:4173/api/state >/dev/null; then
+              echo "the studio answered"
+              docker exec probe studio status
+              docker rm -f probe
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "the studio never answered:"
+          docker logs probe
+          docker rm -f probe
+          exit 1
