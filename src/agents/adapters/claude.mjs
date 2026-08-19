@@ -16,6 +16,10 @@ export default {
   command: 'claude',
   versionArgs: ['--version'],
 
+  /** The variable this CLI reads a key from, and where its own login lives. */
+  apiKeyVar: 'ANTHROPIC_API_KEY',
+  loginHint: 'claude /login, stored in ~/.claude',
+
   newSession: randomUUID,
 
   args({ prompt, sessionId, fresh, agent }) {

@@ -33,6 +33,7 @@ const STUDIO_TESTS = [
   'smoke.mjs',
   'adapter-args.mjs',
   'config-panel.mjs',
+  'auth.mjs',
   'projects.mjs',
   'clone.mjs',
   'doctor.mjs',

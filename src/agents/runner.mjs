@@ -6,6 +6,7 @@ import { CONFIG, AGENTS, getAgent } from '../core/roster.mjs';
 import { getAdapter } from './adapters/index.mjs';
 import { resolveLaunch } from './launch.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
+import { resolveAuth } from '../core/auth.mjs';
 
 /**
  * The runner's own settings, flattened out of the config so the rest of this
@@ -549,6 +550,16 @@ export class Runner {
   #spawnTurn(a, adapter, args, transcript) {
     return new Promise((resolve) => {
       const startedAt = Date.now();
+      const auth = resolveAuth(a.record, adapter);
+      // Said once per turn rather than never: an agent failing every turn on
+      // "Not logged in" while `studio doctor` called it fine is the failure
+      // this whole path exists to end. It is a raw event, so it sits in the
+      // feed beside the turn it belongs to rather than in a log nobody reads.
+      if (!auth.ok) {
+        this.store.append('raw.error', a.id, {
+          text: `${a.id} has no working credentials — ${auth.detail}`,
+        });
+      }
       const env = {
         ...process.env,
         STUDIO_AGENT: a.id,
@@ -561,10 +572,19 @@ export class Runner {
         // what lets one adapter serve any API-compatible backend without the
         // settings panel having to accept arbitrary env, which it must not.
         ...(adapter.env ? adapter.env(a.record) || {} : {}),
+        // A key this studio holds, put where this CLI looks for one. The
+        // environment already wins over the store, so a key injected by a
+        // deployment is never overridden by one typed into a browser.
+        ...auth.env,
         // Raw env stays last and stays file-only: it is the escape hatch, and
         // it is the reason the panel refuses this key.
         ...(a.record.options?.env || {}),
       };
+      // `auth: login` means the CLI's own stored login and nothing else, so the
+      // key variables are cleared rather than merely not set. Inheriting one
+      // from the environment would make the setting a description of what might
+      // happen instead of a decision about what does.
+      for (const name of auth.unset) delete env[name];
       // An agent may override the executable — a wrapper script, a pinned
       // version, or the same provider reached through a different binary.
       const wanted = a.record.options?.command || adapter.command;

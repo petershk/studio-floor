@@ -15,6 +15,13 @@ export default {
   command: 'grok',
   versionArgs: ['--version'],
 
+  // Deliberately no apiKeyVar. This CLI authenticates with `grok login` and
+  // publishes no key variable in its help, so claiming one would produce an
+  // agent that looks configured and fails anyway. To reach Grok with a key
+  // instead, use the `grok` preset, which runs it through the Codex CLI
+  // against the xAI API.
+  loginHint: 'grok login, stored in ~/.grok',
+
   newSession: randomUUID,
 
   args({ prompt, sessionId, fresh, agent }) {

@@ -50,6 +50,9 @@ export default {
   command: 'gemini',
   versionArgs: ['--version'],
 
+  apiKeyVar: 'GEMINI_API_KEY',
+  loginHint: 'gemini auth, stored in ~/.gemini',
+
   newSession: randomUUID,
 
   args({ prompt, sessionId, fresh, agent }) {

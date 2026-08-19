@@ -61,6 +61,15 @@ export const EVENT_LOG = path.join(STATE_DIR, 'events.jsonl');
 export const RUNTIME_FILE = path.join(STATE_DIR, 'runtime.json');
 export const TRANSCRIPT_DIR = path.join(STATE_DIR, 'transcripts');
 
+/**
+ * Provider keys entered through the studio, encrypted at rest.
+ *
+ * In the state directory rather than beside the config, because the config is a
+ * file the docs tell you to commit and this must never be one. See
+ * src/core/secrets.mjs for what the encryption does and does not protect.
+ */
+export const SECRETS_FILE = path.join(STATE_DIR, 'secrets.json');
+
 export const CONFIG_FILE = process.env.STUDIO_CONFIG
   ? path.resolve(process.env.STUDIO_CONFIG)
   : (IS_LEGACY_LAYOUT ? legacyConfig : path.join(modern, 'config.json'));

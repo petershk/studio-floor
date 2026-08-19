@@ -283,6 +283,7 @@ async function doctor() {
   const { CONFIG, AGENTS } = await load(SRC, 'core', 'roster.mjs');
   const { getAdapter, loadUserAdapters, providers } = await load(SRC, 'agents', 'adapters', 'index.mjs');
   const { resolveLaunch } = await load(SRC, 'agents', 'launch.mjs');
+  const { resolveAuth } = await load(SRC, 'core', 'auth.mjs');
   const { CONFIG_FILE, PROJECT_ROOT } = await load(SRC, 'core', 'paths.mjs');
   const { isUntouchedBrief, isInferredBrief } = await load(SRC, 'core', 'projects.mjs');
   const fs = await import('node:fs');
@@ -369,6 +370,21 @@ async function doctor() {
     const r = seen.get(cmd);
     if (r.found) ok(`${a.id} → ${a.provider} (${cmd}${r.version ? ` — ${r.version}` : ''})`);
     else fail(`${a.id} → ${a.provider}: "${cmd}" is not installed or not on PATH`);
+
+    // Installed is not the same as able to run, and reporting only the first
+    // has actively misled: on a fresh cloud box this said `ok claude` while
+    // that agent answered every turn with "Not logged in · Please run /login".
+    if (!r.found) continue;
+    const auth = resolveAuth(a, adapter);
+    if (auth.ok) console.log(`        auth: ${auth.detail}`);
+    else fail(`${a.id} cannot authenticate — ${auth.detail}`);
+    // The one case doctor genuinely cannot answer from here. A stored login is
+    // a file this process is not going to open and a session that may have
+    // expired, so it says which it is relying on rather than pretending to
+    // have checked.
+    if (auth.ok && auth.source === 'login') {
+      console.log('        (not verified — only the CLI itself knows whether that login is still good)');
+    }
   }
 
   if (!problems) {

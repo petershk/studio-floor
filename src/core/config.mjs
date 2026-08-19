@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG_FILE, PROJECT_ROOT } from './paths.mjs';
+import { AUTH_MODES } from './auth.mjs';
 
 /**
  * The roster and the runner's settings.
@@ -287,7 +288,7 @@ function pickOptionKeys(a) {
   const out = {};
   for (const k of [
     'model', 'sandbox', 'permissionMode', 'disableMcp',
-    'baseUrl', 'apiKeyEnv', 'apiKey',
+    'baseUrl', 'apiKeyEnv', 'apiKey', 'auth', 'wireApi',
     'command', 'extraArgs', 'env',
   ]) {
     if (a[k] !== undefined) out[k] = a[k];
@@ -377,6 +378,11 @@ export const AGENT_EDITABLE_OPTIONS = [
   // adapter turns into the two variables its CLI reads, not arbitrary
   // environment. `NODE_OPTIONS` changes what code runs; a base URL does not.
   'baseUrl', 'apiKeyEnv',
+  // Which of those an agent actually uses. Declared rather than inferred: an
+  // agent set to `login` has its key variables cleared before the CLI starts,
+  // so the mode is a choice instead of a label over whatever happened to be in
+  // the environment.
+  'auth',
 ];
 export const AGENT_PROTECTED_OPTIONS = ['command', 'extraArgs', 'env'];
 
@@ -541,6 +547,10 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
             }
             if (k === 'apiKeyEnv' && v && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(v))) {
               errors.push(`agent #${i + 1}: apiKeyEnv must be an environment variable name`);
+              continue;
+            }
+            if (k === 'auth' && v && !AUTH_MODES.includes(String(v))) {
+              errors.push(`agent #${i + 1}: auth must be one of ${AUTH_MODES.join(', ')}`);
               continue;
             }
             if (v !== '' && v !== undefined && v !== null) agent[k] = v;

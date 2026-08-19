@@ -56,6 +56,9 @@ export default {
   command: 'codex',
   versionArgs: ['--version'],
 
+  apiKeyVar: 'OPENAI_API_KEY',
+  loginHint: 'codex login, stored in ~/.codex',
+
   newSession() {
     return null;
   },
