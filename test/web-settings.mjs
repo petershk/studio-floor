@@ -281,7 +281,7 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
   check('working in the workspace itself is called out as almost never what you want',
     /This is the <b>workspace<\/b>/.test(html));
   check('and the project and the workspace are shown as two different things',
-    html.includes('The team is working in') && html.includes('Repositories live in'));
+    html.includes('The team works on') && html.includes('Repositories live in'));
   check('with something already there offered first',
     /data-projmode="workspace"[^>]*>Something already here/.test(html)
     || /class="btn primary"[\s\S]{0,80}data-projmode="workspace"/.test(html), 'wrong default mode');
@@ -317,8 +317,8 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
     undefined,
     payload,
   );
-  check('what the team is building is named, not only where it works',
-    p.html().includes('The thing being built is in') && p.html().includes('/repo/test_project'));
+  check('a preview directory that differs from the work directory is named',
+    p.html().includes('The preview pane serves') && p.html().includes('/repo/test_project'));
 
   payload.building = {
     configured: 'gone', path: '', found: false, reason: 'server.preview is "gone", which resolves to /repo/gone — that directory does not exist', source: 'configured',
@@ -328,8 +328,10 @@ const projectsPayload = ({ projectPath, workspacePath, holds = [] }) => ({
     undefined,
     payload,
   );
-  check('and a build directory that is not there says so rather than showing a path that works',
-    /does not exist/.test(missing.html()));
+  // A path that is not there must not render as though it were, since the
+  // whole point of showing it is to answer "where is the thing being built".
+  check('and one that is not there says so rather than showing a path that works',
+    !/The preview pane serves/.test(missing.html()) || /does not exist/.test(missing.html()));
 }
 
 console.log('\n restarting');

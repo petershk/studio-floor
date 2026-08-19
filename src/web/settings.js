@@ -200,6 +200,7 @@ function projectBlock() {
   if (!projects?.ok) return '';
   const cur = projects.current;
   const ws = projects.workspace;
+  const wd = projects.workDir;
   const p = probe;
   const typed = pathDraft.trim();
   const same = p && cur && p.info.path === cur.path;
@@ -211,8 +212,15 @@ function projectBlock() {
       <h3>Where the team works</h3>
 
       <div class="set-current">
-        <div class="muted">The team is working in</div>
-        <div class="mono">${esc(cur.path)}</div>
+        <div class="muted">The team works on</div>
+        <div class="mono">${esc(wd?.path || cur.path)}</div>
+        <div class="muted">
+          ${wd?.scoped
+    ? `the only directory the agents can write in — inside <span class="mono">${esc(cur.path)}</span>`
+    : 'the whole project — the agents can write anywhere in it'}
+          ${wd?.scoped && !wd.exists ? ' · <b>that directory does not exist yet</b>' : ''}
+          ${wd?.problem ? ` · <b>${esc(wd.problem)}</b>` : ''}
+        </div>
         <div class="muted">
           ${cur.briefUntouched
     ? '<b>brief is still the init template — the team will draft a real one</b>'
@@ -225,13 +233,23 @@ function projectBlock() {
         </div>
       </div>
 
-      ${projects.building ? `<div class="set-current">
-        <div class="muted">The thing being built is in</div>
-        <div class="mono">${esc(projects.building.path || projects.building.configured)}</div>
+      ${projects.building && projects.building.path && projects.building.path !== (wd?.path || cur.path)
+    ? `<div class="set-current">
+        <div class="muted">The preview pane serves</div>
+        <div class="mono">${esc(projects.building.path)}</div>
         <div class="muted">${projects.building.found
-    ? `the preview pane serves this${projects.building.source === 'configured' ? '' : ' — found by looking, not configured'}`
-    : `<b>${esc(projects.building.reason || 'that directory is not there')}</b>`}</div>
+      ? (projects.building.source === 'configured' ? 'from server.preview' : 'found by looking, not configured')
+      : `<b>${esc(projects.building.reason || 'that directory is not there')}</b>`}</div>
       </div>` : ''}
+
+      <label class="set-f wide">
+        <span>Build in this subdirectory <em class="muted">optional</em></span>
+        <input class="input" data-path="project.workDir" value="${esc(draft.project.workDir || '')}"
+               spellcheck="false" placeholder="the whole project">
+        <em class="muted">Relative to the project. Every vendor CLI scopes its sandbox to the
+        directory it runs in, so this is what stops a team building in one folder from editing
+        everything around it — including the studio itself. Takes effect on restart.</em>
+      </label>
 
       ${holdingPen ? `<div class="set-warn">
         This is the <b>workspace</b> — the directory repositories are cloned into — rather than a

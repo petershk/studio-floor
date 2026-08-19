@@ -6,7 +6,9 @@ import {
   WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT, STATE_DIR, HOME_DIR,
 } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
-import { AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG } from '../core/roster.mjs';
+import {
+  AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG, WORK_DIR,
+} from '../core/roster.mjs';
 import { providers, getAdapter } from '../agents/adapters/index.mjs';
 import {
   readRawConfig, applyConfigPatch, saveRawConfig, restartRequiredFor, normaliseConfig,
@@ -183,6 +185,15 @@ export function createHttpServer(store, runner) {
           // the project rather than the project itself. This studio's own team
           // builds in test_project/ and the panel never said so, which made the
           // whole section read as being about the wrong thing.
+          // Where the agents can write, which is the only fact that decides
+          // what they can break.
+          workDir: {
+            relative: WORK_DIR.relative,
+            path: WORK_DIR.path,
+            scoped: WORK_DIR.scoped,
+            exists: WORK_DIR.exists !== false,
+            problem: WORK_DIR.problem || '',
+          },
           building: (() => {
             const pv = resolvePreview(SERVER_CONFIG.preview);
             if (!pv.configured && !pv.root) return null;

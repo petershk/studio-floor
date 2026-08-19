@@ -1,4 +1,4 @@
-import { loadConfig } from './config.mjs';
+import { loadConfig, resolveWorkDir } from './config.mjs';
 
 /**
  * The resolved team, loaded once per process.
@@ -40,3 +40,12 @@ export const SERVER = CONFIG.server;
 
 /** What the team is here to do. */
 export const PROJECT = CONFIG.project;
+
+/**
+ * Where the agents actually run.
+ *
+ * Resolved once, beside the roster, because the runner, the prompts, doctor and
+ * the panel must all agree about it — and because "the directory the team can
+ * write in" is not a thing to work out twice.
+ */
+export const WORK_DIR = resolveWorkDir(CONFIG.project?.workDir);

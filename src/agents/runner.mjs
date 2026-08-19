@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STATE_DIR, TRANSCRIPT_DIR, BASE_URL, STUDIO_CMD } from '../core/paths.mjs';
-import { CONFIG, AGENTS, getAgent } from '../core/roster.mjs';
+import { CONFIG, AGENTS, WORK_DIR, getAgent } from '../core/roster.mjs';
 import { getAdapter } from './adapters/index.mjs';
 import { resolveLaunch } from './launch.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
@@ -437,6 +437,10 @@ export class Runner {
       ? firstTurnPrompt(a.record, brief, { inbox: inboxData.items, project: this.config.project })
       : turnPrompt(a.record, { turn: a.turn, reason, inbox: inboxData.items, brief });
 
+    // A fresh turn is a fresh chance for the approval to be there, so the
+    // per-turn flag resets here and the streak survives until a turn runs
+    // clean.
+    a.approvalBlockedThisTurn = false;
     this.store.append('raw.turn.start', a.id, { turn: a.turn, reason, fresh, sessionId: a.sessionId });
     this.store.append('agent.state', a.id, { state: 'thinking', note: reason });
 
@@ -490,6 +494,10 @@ export class Runner {
     ).length;
     a.quietTurns = produced ? 0 : a.quietTurns + 1;
 
+    // A turn that got through without asking for anything clears the streak,
+    // so a later block is reported again rather than being swallowed by an
+    // attention item raised hours ago.
+    if (!a.approvalBlockedThisTurn) a.approvalBlocked = 0;
     this.store.append('raw.turn.end', a.id, {
       turn: a.turn,
       exitCode: exit.code,
@@ -601,7 +609,11 @@ export class Runner {
       let child;
       try {
         child = spawn(command, spawnArgs, {
-          cwd: PROJECT_ROOT,
+          // Where the team can write, not just where it starts. Every vendor
+          // CLI scopes its sandbox to the working directory, so this line is
+          // what stops a team building in test_project/ from editing the studio
+          // that is running it.
+          cwd: WORK_DIR.path,
           env,
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
@@ -698,8 +710,51 @@ export class Runner {
     });
   }
 
+  /**
+   * A turn that cannot proceed because something is waiting for an approval
+   * nobody can give.
+   *
+   * Agents run non-interactively. When a vendor CLI decides an action needs
+   * permission it asks, and in a `-p` run there is no one at that terminal to
+   * answer, so the agent waits, gives up, and tries again next turn. Observed
+   * for ten consecutive turns on this project's own studio: the agent wrote
+   * "I am blocked" into its transcript every time, and nothing reached the
+   * human — because the command it would have used to say so was itself one of
+   * the things awaiting approval.
+   *
+   * So the studio watches for it. The escape hatch must not depend on the thing
+   * that is broken.
+   */
+  #noticeApprovalBlock(a, item) {
+    if (item.kind !== 'raw.tool.result' || !item.data?.isError) return;
+    const text = String(item.data.output || '');
+    if (!/requires approval|haven't granted it yet|has not granted|permission to (?:use|write|run)/i.test(text)) return;
+
+    // Once per turn, and once per streak. An agent hitting this hits it on
+    // every tool call of every turn, and an attention item per attempt would
+    // bury the one that mattered.
+    if (a.approvalBlockedThisTurn) return;
+    a.approvalBlockedThisTurn = true;
+    a.approvalBlocked = (a.approvalBlocked || 0) + 1;
+    if (a.approvalBlocked !== 1) return;
+
+    this.store.append('attention.raised', a.id, {
+      id: `ATT-${Date.now()}`,
+      kind: 'blocked',
+      text: `${a.id} is waiting for a permission this studio cannot grant. Its CLI asked for `
+        + 'approval and nothing is there to answer, so the turn stalls and the agent cannot even '
+        + `report it — the studio CLI call needs the same approval. What it asked about: `
+        + `${text.trim().slice(0, 300)}`,
+      options: [
+        `Set ${a.id}'s permissions to dontAsk or bypassPermissions in Settings, then restart`,
+        'Leave it, and run that step yourself',
+      ],
+    });
+  }
+
   /** Turn one normalised adapter item into studio events. */
   #emit(a, item) {
+    this.#noticeApprovalBlock(a, item);
     if (item.kind === 'session') {
       if (item.data.sessionId) a.sessionId = item.data.sessionId;
       return;

@@ -345,6 +345,10 @@ export function defaultConfig() {
       name: path.basename(PROJECT_ROOT),
       brief: 'PROJECT.md',
       goal: '',
+      // Empty means the whole project, which is what a studio pointed at a
+      // repository wants. Set it when the thing being built is one directory
+      // inside something larger — see workDir handling below.
+      workDir: '',
     },
     agents: DEFAULT_AGENTS.map((a) => ({ ...a })),
     runner: { ...DEFAULT_RUNNER },
@@ -561,7 +565,51 @@ export const RUNNER_EDITABLE = [
   'maxTurns', 'maxWallMs', 'maxSpendUsd',
   'turnTimeoutMs', 'cooldownMs', 'staggerMs', 'commandLineBudget', 'idleBackoffMs',
 ];
-export const PROJECT_EDITABLE = ['name', 'goal', 'brief'];
+export const PROJECT_EDITABLE = ['name', 'goal', 'brief', 'workDir'];
+
+/**
+ * The directory the agents actually run in.
+ *
+ * Every vendor CLI scopes its sandbox to its working directory — codex's
+ * `workspace-write`, Claude Code's edit permissions, grok's sandbox — so this
+ * is the one lever that decides what a team can touch, and it was always the
+ * whole project.
+ *
+ * That is wrong whenever the project contains the studio as well as the thing
+ * being built. Studio Floor's own team builds in `test_project/` inside the
+ * studio's repository, and with no work directory their sandbox included the
+ * tool they were running on: agents editing the runner mid-turn, which is
+ * exactly as confusing as it sounds.
+ *
+ * Resolved here rather than at each call site so that "inside the project" is
+ * enforced once. A work directory that escapes is refused rather than clamped,
+ * because silently working somewhere other than where you were told to is the
+ * failure this whole file keeps guarding against.
+ */
+export function resolveWorkDir(workDir, projectRoot = PROJECT_ROOT) {
+  const want = typeof workDir === 'string' ? workDir.trim() : '';
+  if (!want) return { path: projectRoot, relative: '', scoped: false };
+
+  const resolved = path.resolve(projectRoot, want);
+  const inside = resolved === projectRoot
+    || resolved.startsWith(projectRoot.endsWith(path.sep) ? projectRoot : projectRoot + path.sep);
+  if (!inside) {
+    return {
+      path: projectRoot,
+      relative: '',
+      scoped: false,
+      problem: `project.workDir "${want}" resolves outside the project, so it is being ignored`,
+    };
+  }
+  return {
+    path: resolved,
+    // Reported with forward slashes whatever the platform: this string goes
+    // into prompts and a Windows path with backslashes in one reads as escapes.
+    relative: path.relative(projectRoot, resolved).split(path.sep).join('/'),
+    scoped: resolved !== projectRoot,
+    exists: fs.existsSync(resolved),
+  };
+}
 
 /**
  * Which edits take effect immediately and which need a restart.
@@ -586,7 +634,20 @@ const NUMERIC_BOUNDS = {
 };
 
 const SANDBOXES = ['read-only', 'workspace-write', 'full'];
-const PERMISSION_MODES = ['default', 'auto', 'acceptEdits'];
+/**
+ * What to do when the CLI wants approval for something.
+ *
+ * The first three all ask, in different amounts, and an agent running
+ * non-interactively cannot be answered — it waits, gives up, and retries next
+ * turn forever. That is not theoretical: this project's own studio sat in it
+ * for ten turns with `auto`, unable even to report the problem, because the
+ * studio CLI call it would have used was itself awaiting approval.
+ *
+ * So the two that never ask are offered as well. They are more dangerous and
+ * they are the only ones that work unattended, which is a real trade and one
+ * the human should get to make.
+ */
+const PERMISSION_MODES = ['default', 'auto', 'acceptEdits', 'dontAsk', 'bypassPermissions', 'plan'];
 
 /** Read the config file as written, with no defaults applied. */
 export function readRawConfig(file = CONFIG_FILE) {
@@ -623,6 +684,13 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
       }
       if (typeof v !== 'string') {
         errors.push(`project.${k} must be text`);
+        continue;
+      }
+      if (k === 'workDir' && v && (v.includes('..') || path.isAbsolute(v))) {
+        // Same reasoning as the brief, with more teeth: this one decides where
+        // the agents' sandbox is rooted, so a path that climbs out of the
+        // project would hand them the rest of the disk.
+        errors.push('project.workDir must be a directory inside the project');
         continue;
       }
       if (k === 'brief' && (v.includes('..') || path.isAbsolute(v))) {

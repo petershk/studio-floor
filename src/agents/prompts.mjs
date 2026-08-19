@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STUDIO_CMD } from '../core/paths.mjs';
 import { isUntouchedBrief, isInferredBrief } from '../core/projects.mjs';
-import { AGENTS } from '../core/roster.mjs';
+import { AGENTS, WORK_DIR } from '../core/roster.mjs';
 import { gitToken, workBranch } from '../core/git.mjs';
 
 /**
@@ -223,6 +223,25 @@ function projectSection(project = {}) {
   const lines = ['=== THE PROJECT ==='];
 
   if (project.name) lines.push(`This project is called "${project.name}".`);
+
+  // The sandbox already stops them leaving; this stops them trying, and stops
+  // them reporting a task blocked on a permission they were never going to get.
+  if (WORK_DIR.scoped) {
+    lines.push(
+      '',
+      `=== YOU WORK IN ${WORK_DIR.relative}/ ===`,
+      '',
+      `Everything you build goes in ${WORK_DIR.path}. That is your working`,
+      'directory and the only place you can write — the rest of this repository is',
+      'code that happens to be nearby and is not yours, including the studio you are',
+      'running inside. Do not edit it, and do not propose changes to it as part of',
+      'this project.',
+      '',
+      'You may read outside that directory when it helps you understand something.',
+      'If you genuinely believe work is needed elsewhere, raise it for the human',
+      'rather than doing it.',
+    );
+  }
   if (project.goal) lines.push('', project.goal.trim());
 
   // Always name the resolved path. A relative "PROJECT.md" is how this
