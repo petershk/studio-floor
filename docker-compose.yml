@@ -69,14 +69,17 @@ services:
   #
   #   docker compose --profile tunnel up -d
   #
-  # Without TUNNEL_TOKEN this service simply does not start, which is why it is
-  # behind a profile rather than always on.
+  # TUNNEL_TOKEN is NOT declared required here, even though it is. Compose
+  # interpolates the whole file before it looks at profiles, so a `${VAR:?...}`
+  # on a service nobody selected fails `docker compose build` and every other
+  # command with it. Found the first time this file was ever run. An empty token
+  # instead fails inside cloudflared, which says the token is invalid.
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN to use the tunnel profile}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
       - studio
     restart: unless-stopped
