@@ -88,3 +88,73 @@ export function duration(ms) {
   if (hrs < 24) return `${hrs}h ${mins % 60}m`;
   return `${Math.floor(hrs / 24)}d ${hrs % 24}h`;
 }
+
+/**
+ * One word for what the studio is doing, always on screen.
+ *
+ * The banner below only appears when something is wrong, which leaves the
+ * ordinary question — is this thing running? — answered by inference from
+ * whether the feed is moving. The states are ordered by what a human needs to
+ * know first: not being able to see the studio beats anything the studio might
+ * be doing, a paused team beats a warning about one agent, and "running" is
+ * only claimed when an agent is actually working.
+ */
+export function studioStatus({
+  connected, downSince, lastEventAt, now, state, attention = 0, locked = false,
+}) {
+  if (locked) return { level: 'locked', label: 'LOCKED', detail: 'this studio needs its token' };
+
+  if (!connected) {
+    const forMs = downSince ? now - downSince : 0;
+    if (forMs >= DOWN_GRACE_MS) {
+      return { level: 'down', label: 'NO CONTACT', detail: `nothing has reached this page for ${duration(forMs)}` };
+    }
+  }
+
+  const agents = Object.values(state?.agents || {});
+  const running = agents.filter((a) => a.state !== 'offline' && !a.paused);
+  const busy = agents.filter((a) => ['working', 'thinking', 'reviewing'].includes(a.state));
+  const errored = agents.filter((a) => a.state === 'error');
+
+  if (state?.paused) return { level: 'paused', label: 'PAUSED', detail: 'you paused the team' };
+  if (!agents.length) return { level: 'stopped', label: 'NO TEAM', detail: 'no agents are configured' };
+  if (!running.length) {
+    return {
+      level: 'stopped',
+      label: 'STOPPED',
+      detail: errored.length ? `${errored.length} of ${agents.length} stopped on an error` : 'no agent is running',
+    };
+  }
+
+  // A warning is about agents that are still meant to be working, so it sits
+  // below paused and stopped: a team you switched off is not a fault.
+  if (errored.length) {
+    return {
+      level: 'warning',
+      label: 'WARNING',
+      detail: `${errored.length} agent${errored.length === 1 ? '' : 's'} in error, ${running.length} still running`,
+    };
+  }
+  if (attention > 0) {
+    return {
+      level: 'warning',
+      label: 'NEEDS YOU',
+      detail: `${attention} thing${attention === 1 ? '' : 's'} waiting on you`,
+    };
+  }
+
+  if (busy.length) {
+    return {
+      level: 'running',
+      label: 'RUNNING',
+      detail: `${busy.length} of ${running.length} working`,
+    };
+  }
+
+  const idleMs = lastEventAt ? now - lastEventAt : 0;
+  return {
+    level: 'idle',
+    label: 'IDLE',
+    detail: idleMs > 60_000 ? `nothing for ${duration(idleMs)}` : 'waiting for something to do',
+  };
+}

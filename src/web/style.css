@@ -694,3 +694,21 @@ main {
 }
 .set-tab:hover { color: var(--fg); }
 .set-tab.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* What the studio is doing, in one word, always visible. Colour carries the
+   same information as the word so it reads at a glance from across a desk. */
+.status {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--dim);
+}
+.status.running { color: var(--good); border-color: #3f7d4f; }
+.status.idle { color: var(--dim); }
+.status.paused { color: var(--warn); border-color: #a5762f; }
+.status.warning { color: var(--warn); border-color: #a5762f; background: #2a2113; }
+.status.stopped { color: var(--bad); border-color: #7b3230; }
+.status.down, .status.locked { color: #ffb3ad; border-color: #7b3230; background: #2a1214; }

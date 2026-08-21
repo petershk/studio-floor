@@ -16,7 +16,7 @@ import { refreshSettings } from './settings.js';
 import { renderUsage } from './usage.js';
 import { showPreview, hidePreview } from './preview.js';
 import { startUpdateWatch } from './update-badge.js';
-import { livenessState, livenessTitle } from './liveness.js';
+import { livenessState, livenessTitle, studioStatus } from './liveness.js';
 
 const $ = (id) => document.getElementById(id);
 /**
@@ -162,6 +162,28 @@ function renderLiveness() {
   el.innerHTML = level === 'ok' ? ''
     : `<strong>${esc(headline)}</strong> <span class="lv-detail">${esc(detail)}</span>`;
   document.title = livenessTitle(level, baseTitle);
+
+  // The always-on version of the same question. The banner appears only when
+  // something is wrong, which left "is this thing running" to be inferred from
+  // whether the feed was moving.
+  const pill = $('studio-status');
+  if (pill) {
+    const status = studioStatus({
+      connected,
+      downSince,
+      lastEventAt,
+      now: Date.now(),
+      state,
+      // Guarded: the 5-second tick keeps running while the studio is locked or
+      // has not answered yet, and the queue is built from a state we may not
+      // have.
+      attention: state ? queueTotal() : 0,
+      locked,
+    });
+    pill.textContent = status.label;
+    pill.className = `status ${status.level}`;
+    pill.title = status.detail;
+  }
 }
 setInterval(renderLiveness, 5_000);
 

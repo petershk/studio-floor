@@ -24,7 +24,7 @@ import {
   startHeartbeat, readBeat, describeBeat, processAlive, since, STALE_AFTER_MS,
 } from '../src/core/heartbeat.mjs';
 import {
-  livenessState, livenessTitle, QUIET_AFTER_MS, DOWN_GRACE_MS,
+  livenessState, livenessTitle, studioStatus, QUIET_AFTER_MS, DOWN_GRACE_MS,
 } from '../src/web/liveness.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -178,6 +178,44 @@ check('the tab title carries it into a background tab',
   livenessTitle('down', 'X').includes('no contact')
   && livenessTitle('quiet', 'X').includes('idle')
   && livenessTitle('ok', 'X') === 'X');
+
+console.log('\n one word for what it is doing');
+
+const agentsIn = (...states) => ({
+  agents: Object.fromEntries(states.map((st, i) => [`a${i}`, typeof st === 'string' ? { state: st } : st])),
+});
+const status = (o) => studioStatus({
+  connected: true, downSince: null, lastEventAt: NOW, now: NOW, state: agentsIn('idle'), ...o,
+});
+
+check('an agent doing something is RUNNING',
+  status({ state: agentsIn('working', 'idle') }).label === 'RUNNING');
+check('a team with nothing to do is IDLE, not stopped',
+  status({ state: agentsIn('idle', 'idle') }).label === 'IDLE');
+
+// Ordered by what a human needs to know first. A team you switched off is not
+// a fault, so paused and stopped both outrank a warning about one agent.
+check('a paused team says PAUSED even with an agent in error',
+  status({ state: { ...agentsIn('error', 'idle'), paused: true } }).label === 'PAUSED');
+check('every agent offline is STOPPED',
+  status({ state: agentsIn('offline', 'offline') }).label === 'STOPPED');
+check('and it says how many stopped on an error',
+  status({ state: agentsIn({ state: 'error' }, 'offline') }).detail.includes('error'),
+  status({ state: agentsIn({ state: 'error' }, 'offline') }).detail);
+check('an agent in error while others run is a WARNING',
+  status({ state: agentsIn('error', 'working') }).label === 'WARNING');
+check('things waiting on the human say so when nothing is broken',
+  status({ attention: 2, state: agentsIn('idle') }).label === 'NEEDS YOU');
+
+// Not being able to see the studio beats anything the studio might be doing.
+check('a dropped connection outranks everything the state says',
+  status({ connected: false, downSince: NOW - 10_000, state: agentsIn('working') }).label === 'NO CONTACT');
+check('but a blink does not', status({ connected: false, downSince: NOW - 500 }).label !== 'NO CONTACT');
+check('a refused token outranks even that',
+  status({ locked: true, connected: false, downSince: NOW - 10_000 }).label === 'LOCKED');
+
+check('a studio with no agents configured says so rather than claiming to be stopped',
+  status({ state: { agents: {} } }).label === 'NO TEAM');
 
 console.log('\n studio status');
 

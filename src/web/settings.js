@@ -542,6 +542,11 @@ function restartButton(id = 'set-restart') {
   return `<button class="btn" type="button" disabled title="${esc(why)}">Restart studio</button>`;
 }
 
+/** The label an agent gets when nobody chose one. Mirrors config.mjs. */
+function autoLabel(id) {
+  return String(id || '').replace(/(^|-)([a-z])/g, (_, sep, c) => sep.replace('-', ' ') + c.toUpperCase());
+}
+
 /**
  * What happened last time this agent was run.
  *
@@ -763,6 +768,11 @@ function agentCard(a, i, s) {
   <div class="set-agent" data-i="${i}">
     <div class="set-agent-head">
       <span class="set-agent-n">${i + 1}</span>
+      ${(data.running || []).some((r) => r.id === a.id)
+    ? ''
+    : `<div class="set-locked">Not running yet — this agent appears in the file and the studio is
+       still running the roster it started with. Restart to apply it.</div>`}
+
       <label class="set-f">
         <span>Agent name</span>
         <input class="input" data-path="agents.${i}.id" value="${esc(a.id)}"
@@ -1310,6 +1320,25 @@ function onEdit(input) {
   const path = input.dataset.path;
   const value = input.type === 'checkbox' ? input.checked : input.value;
 
+  // Renaming an agent has to take its label with it.
+  //
+  // The label defaults to a capitalised id and is then written into the file,
+  // where it stays. So renaming `grok` to `claude` left `label: "Grok"`, and
+  // the agents rail — which shows the label — went on saying Grok while the
+  // settings page said claude. Two views of one agent, disagreeing, with no way
+  // in the panel to fix it because the label is not a field here.
+  //
+  // A label the human deliberately chose is left alone; only one that is still
+  // the automatic form of the old id follows the rename.
+  if (/^agents\.\d+\.id$/.test(path)) {
+    const i = Number(path.split('.')[1]);
+    const agent = draft.agents[i];
+    if (!agent.label || agent.label === autoLabel(agent.id)) agent.label = autoLabel(value);
+    agent.id = value;
+    dirty = true;
+    return render();
+  }
+
   if (path.endsWith('.vendor.select') || path.endsWith('.auth')) {
     const i = Number(path.split('.')[1]);
     if (path.endsWith('.auth')) draft.agents[i].auth = value;
@@ -1527,6 +1556,9 @@ function esc(s) {
  */
 export const __test = {
   onEdit: (input) => onEdit(input),
+  // The label is not a field in this panel — it is derived and then written to
+  // the file — so behaviour about it can only be asserted against the draft.
+  draft: () => draft,
   setTab: (next) => {
     tab = next;
     render();

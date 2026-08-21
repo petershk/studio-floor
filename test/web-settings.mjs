@@ -125,6 +125,7 @@ async function panel(agent, vendors, projects = { ok: false }, tabName = 'team')
     html: () => stub.byId('settings').innerHTML,
     edit: (path, value) => mod.__test.onEdit({ dataset: { path }, value, type: 'select-one' }),
     setTab: (next) => mod.__test.setTab(next),
+    draft: () => mod.__test.draft(),
   };
 }
 
@@ -364,6 +365,34 @@ console.log('\n restarting');
   check('and one too old to say is not accused of the same thing',
     /disabled/.test(oldStudio) && /cannot restart itself/.test(oldStudio) && !/without a supervisor/.test(oldStudio),
     'wrong reason');
+}
+
+{
+  // The agents rail shows the label; the settings page shows the id. The label
+  // defaults to a capitalised id and is then written into the file, so renaming
+  // an agent left the rail saying the old name forever — two views of one agent
+  // disagreeing, with no way to fix it here because the label is not a field.
+  const p = await panel(
+    { id: 'grok', label: 'Grok', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined, { ok: false }, 'team',
+  );
+  p.edit('agents.0.id', 'claude');
+  const renamed = p.draft().agents[0];
+  check('renaming an agent takes its automatic label with it',
+    renamed.id === 'claude' && renamed.label === 'Claude', JSON.stringify(renamed));
+}
+
+{
+  // A label somebody chose is theirs. Only the automatic form of the old id is
+  // presumed stale.
+  const p = await panel(
+    { id: 'grok', label: 'The Adversary', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined, { ok: false }, 'team',
+  );
+  p.edit('agents.0.id', 'claude');
+  const kept = p.draft().agents[0];
+  check('a label the human chose survives a rename',
+    kept.id === 'claude' && kept.label === 'The Adversary', JSON.stringify(kept));
 }
 
 console.log('\n tabs');
