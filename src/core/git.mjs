@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { getSecret } from './secrets.mjs';
 
 /**
  * Git credentials and a git identity, for a machine that has neither.
@@ -37,11 +38,25 @@ export const CREDENTIALS_FILE = process.env.STUDIO_GIT_CREDENTIALS
 export const DEFAULT_NAME = 'Studio Floor';
 export const DEFAULT_EMAIL = 'studio-floor@localhost';
 
+/** Where a token entered through the panel is filed. */
+export const GIT_SECRET = 'git:token';
+
+/**
+ * The token, from the environment or from this studio's own store.
+ *
+ * The environment still wins, because that is how a deployment injects one and
+ * an operator's value must not be overridden by something typed into a browser
+ * months earlier. The store exists for the case the environment cannot serve:
+ * somebody using a studio they did not deploy, who has no shell to export a
+ * variable in and would otherwise have no way to let their team push at all.
+ */
 export function gitToken(env = process.env) {
   for (const name of TOKEN_VARS) {
     const v = env[name];
     if (typeof v === 'string' && v.trim()) return { token: v.trim(), from: name };
   }
+  const stored = getSecret(GIT_SECRET, { env });
+  if (stored) return { token: stored, from: 'this studio' };
   return { token: null, from: null };
 }
 

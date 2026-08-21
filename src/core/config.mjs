@@ -349,6 +349,17 @@ export function defaultConfig() {
       // repository wants. Set it when the thing being built is one directory
       // inside something larger — see workDir handling below.
       workDir: '',
+      /**
+       * Where the team commits.
+       *
+       * `branch` gives every task its own `studio/<task>` branch, which keeps
+       * the default branch clean and leaves the human to merge. `current` has
+       * them commit on whatever branch is checked out, which is what somebody
+       * wants when the branches were piling up unmerged and unseen — and it
+       * means an agent's mistake lands on the branch you work on, so it is a
+       * choice rather than a default.
+       */
+      commitTo: 'branch',
     },
     agents: DEFAULT_AGENTS.map((a) => ({ ...a })),
     runner: { ...DEFAULT_RUNNER },
@@ -565,7 +576,7 @@ export const RUNNER_EDITABLE = [
   'maxTurns', 'maxWallMs', 'maxSpendUsd',
   'turnTimeoutMs', 'cooldownMs', 'staggerMs', 'commandLineBudget', 'idleBackoffMs',
 ];
-export const PROJECT_EDITABLE = ['name', 'goal', 'brief', 'workDir'];
+export const PROJECT_EDITABLE = ['name', 'goal', 'brief', 'workDir', 'commitTo'];
 
 /**
  * The directory the agents actually run in.
@@ -684,6 +695,10 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
       }
       if (typeof v !== 'string') {
         errors.push(`project.${k} must be text`);
+        continue;
+      }
+      if (k === 'commitTo' && v && !['branch', 'current'].includes(v)) {
+        errors.push('project.commitTo must be "branch" or "current"');
         continue;
       }
       if (k === 'workDir' && v && (v.includes('..') || path.isAbsolute(v))) {

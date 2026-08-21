@@ -291,5 +291,32 @@ check('losing the remote is noticed rather than cached',
   firstOf().includes('cannot push'), 'the remote check must not be memoised for the life of the process');
 delete process.env.STUDIO_GIT_TOKEN;
 
+// -------------------------------------------------- where the team commits
+
+// Branches nobody merges are branches nobody reads: five studio/* branches had
+// piled up locally, unpushed and invisible on GitHub, while the human waited to
+// see the work. So where to commit is a setting, and the prompt says which.
+fs.writeFileSync(path.join(tmp, '.git', 'HEAD'), 'ref: refs/heads/main' + '\n');
+fs.writeFileSync(path.join(tmp, '.git', 'config'), '[remote "origin"]\nurl = https://github.com/o/r.git\n');
+process.env.STUDIO_GIT_TOKEN = 'test-token';
+
+config.project.commitTo = 'current';
+const onCurrent = firstTurnPrompt(getAgent('breaker'), 'brief', { project: config.project });
+check('committing to the checked-out branch names it', onCurrent.includes('currently `main`'));
+check('and says not to make a branch per task', /Do not create a branch per task/.test(onCurrent));
+// The old text forbade pushing the default branch, three lines under an
+// instruction to push the default branch.
+check('and does not forbid the very push it just asked for',
+  !/Never push to the default branch/.test(onCurrent), 'contradiction is back');
+check('while asking for more care rather than less',
+  /bar is higher/.test(onCurrent));
+
+config.project.commitTo = 'branch';
+const perTask = firstTurnPrompt(getAgent('breaker'), 'brief', { project: config.project });
+check('a branch per task is still the default shape', /One branch per task/.test(perTask));
+check('and there the default branch stays off limits',
+  /Never push to the default branch/.test(perTask));
+delete process.env.STUDIO_GIT_TOKEN;
+
 console.log(failures ? `\n${failures} roster check(s) failed\n` : '\nall roster checks passed\n');
 process.exit(failures ? 1 : 0);

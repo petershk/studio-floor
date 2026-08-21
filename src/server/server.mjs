@@ -25,6 +25,7 @@ import { detect } from '../core/detect.mjs';
 import { fetchModels } from '../core/models.mjs';
 import { tryAgent } from '../core/try-agent.mjs';
 import { initProject } from '../core/scaffold.mjs';
+import { gitToken, GIT_SECRET } from '../core/git.mjs';
 import {
   putSecret, listSecrets, removeSecret, secretNameFor, storageHint, generateKey, secretKey, NO_KEY,
 } from '../core/secrets.mjs';
@@ -771,6 +772,16 @@ function readConfigForUi() {
     // Whether this studio can restart itself, which depends on something being
     // there to start it again.
     canRestart: Boolean(process.env.STUDIO_SUPERVISED),
+    // Whether this studio can push, and how it was told to commit. Never the
+    // token: only whether there is one and where it came from.
+    git: (() => {
+      const t = gitToken();
+      return {
+        hasToken: Boolean(t.token),
+        from: t.from || '',
+        commitTo: PROJECT.commitTo || 'branch',
+      };
+    })(),
     // The roster this process is actually running, so the panel can say plainly
     // when the file and the running studio have diverged.
     running: AGENTS.map((a) => ({ id: a.id, provider: a.provider })),
@@ -882,6 +893,25 @@ async function restartStudio(store, runner, res) {
  * still four characters of a secret in a response that crosses a network.
  */
 function writeSecret(store, body) {
+  // The git token is a studio-wide secret rather than one agent's, so it takes
+  // the same route and skips the roster check below.
+  if (body?.agent === GIT_SECRET) {
+    if (body.generateKey && !secretKey()) generateKey();
+    const value = typeof body.value === 'string' ? body.value.trim() : '';
+    try {
+      if (value) putSecret(GIT_SECRET, value);
+      else removeSecret(GIT_SECRET);
+    } catch (e) {
+      return { ok: false, error: e.message === NO_KEY ? NO_KEY : `could not store it — ${e.message}` };
+    }
+    store.append('human.control', null, {
+      action: 'secret',
+      text: value ? 'set a git token for the studio' : 'cleared the studio git token',
+      via: 'browser',
+    });
+    return { ok: true, agent: GIT_SECRET, set: Boolean(value) };
+  }
+
   // Generating a passphrase is a separate, explicit act. It is never a silent
   // fallback, because a passphrase kept beside the keys it protects is a real
   // downgrade and the human asking for it should have been told that first.

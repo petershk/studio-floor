@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STUDIO_CMD } from '../core/paths.mjs';
 import { isUntouchedBrief, isInferredBrief } from '../core/projects.mjs';
-import { AGENTS, WORK_DIR } from '../core/roster.mjs';
+import { AGENTS, WORK_DIR, PROJECT } from '../core/roster.mjs';
 import { gitToken, workBranch } from '../core/git.mjs';
 
 /**
@@ -144,7 +144,7 @@ between turns, so you keep your memory of what you have done.
  * push on a box with no credentials produces agents that report a task blocked
  * on an authentication failure they cannot fix.
  */
-function gitSection() {
+function gitSection(project = PROJECT) {
   if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) {
     return [
       '=== THIS DIRECTORY IS NOT A GIT REPOSITORY ===',
@@ -156,30 +156,57 @@ function gitSection() {
   }
 
   const canPush = Boolean(gitToken().token) && hasRemote();
-  const lines = [
-    '=== GIT ===',
-    '',
-    'Work on a branch, never on the default branch. One branch per task, named',
-    `after it: \`${workBranch('TASK-07')}\` for TASK-07.`,
-    '',
-    '  git checkout -b studio/task-07     start work on a task',
-    '  git add -A && git commit -m "..."  as you go, not once at the end',
-    '',
-    'Commit messages are read by the human and by whoever reviews the task. Say',
-    'what changed and why, not "wip".',
-  ];
+  const onCurrent = project?.commitTo === 'current';
+  const branchNow = currentBranch();
+  const lines = onCurrent
+    ? [
+      '=== GIT ===',
+      '',
+      `Commit on the branch that is checked out${branchNow ? ` — currently \`${branchNow}\`` : ''}.`,
+      'Do not create a branch per task: the human wants this work on the branch',
+      'they are looking at, and branches nobody merges are branches nobody reads.',
+      '',
+      '  git add -A && git commit -m "..."  as you go, not once at the end',
+      '',
+      'That means your mistakes land where their work is. Commit small, keep the',
+      'tree working, and never rewrite history that is already pushed.',
+    ]
+    : [
+      '=== GIT ===',
+      '',
+      'Work on a branch, never on the default branch. One branch per task, named',
+      `after it: \`${workBranch('TASK-07')}\` for TASK-07.`,
+      '',
+      '  git checkout -b studio/task-07     start work on a task',
+      '  git add -A && git commit -m "..."  as you go, not once at the end',
+      '',
+      'Commit messages are read by the human and by whoever reviews the task. Say',
+      'what changed and why, not "wip".',
+    ];
 
   if (canPush) {
     lines.push(
       '',
       'This machine can push. When a task is ready for review:',
       '',
-      '  git push -u origin studio/task-07',
+      onCurrent ? `  git push origin ${branchNow || 'HEAD'}` : '  git push -u origin studio/task-07',
       '',
-      'Then say in the channel that you have pushed it, and name the branch. Never',
-      'push to the default branch, never force-push a branch anyone else may have',
-      'pulled, and never push anything containing a credential — the token this box',
-      'uses is not in any file you should be committing.',
+      'Then say in the channel that you have pushed, and name the branch.',
+      ...(onCurrent
+        // Forbidding the default branch here would contradict the instruction
+        // three lines above it: committing to the checked-out branch is the
+        // whole point, and that branch is usually the default one.
+        ? [
+          'You are pushing the branch the human works on, so the bar is higher, not',
+          'lower: never force-push it, never rewrite what is already there, and never',
+          'push a tree you have not seen working.',
+        ]
+        : [
+          'Never push to the default branch, and never force-push a branch anyone else',
+          'may have pulled.',
+        ]),
+      'Never push anything containing a credential — the token this box uses is not',
+      'in any file you should be committing.',
     );
   } else {
     lines.push(
@@ -200,6 +227,17 @@ function gitSection() {
  * team for the rest of the day that this machine cannot push. One small file
  * read against spawning a provider CLI is not a cost worth caching around.
  */
+/** The branch checked out right now, for a prompt that has to name it. */
+function currentBranch() {
+  try {
+    const head = fs.readFileSync(path.join(PROJECT_ROOT, '.git', 'HEAD'), 'utf8').trim();
+    const m = head.match(/^ref: refs\/heads\/(.+)$/);
+    return m ? m[1] : '';
+  } catch {
+    return '';
+  }
+}
+
 function hasRemote() {
   try {
     return /\[remote /.test(fs.readFileSync(path.join(PROJECT_ROOT, '.git', 'config'), 'utf8'));
@@ -364,7 +402,7 @@ ${protocolFor()}
 
 ${projectSection(project)}
 
-${gitSection()}
+${gitSection(project)}
 
 ${brief}
 
@@ -399,9 +437,13 @@ Then end your turn.`;
  * once decays into one convention per agent. This is the smallest thing that
  * keeps it true, and it says nothing at all when there is no git here.
  */
-function gitReminder() {
+function gitReminder(project = PROJECT) {
   if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) return '';
   const push = Boolean(gitToken().token) && hasRemote();
+  const onCurrent = project?.commitTo === 'current';
+  if (onCurrent) {
+    return `- Commit on the branch that is checked out${push ? ', and push it when a task is ready.' : '. This machine does not push.'}`;
+  }
   return '- Commit your work on a studio/<task-id> branch, never on the default branch'
     + `${push ? ', and push it when the task is ready for review.' : '. This machine does not push.'}`;
 }

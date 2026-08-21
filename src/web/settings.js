@@ -197,6 +197,40 @@ function render() {
     </section>
 
     <section class="set-block">
+      <h3>Git</h3>
+      <p class="muted">Where the team commits, and whether it can push. Agents are told this in
+      their prompt — a convention nothing states is a convention every agent invents differently.</p>
+
+      <label class="set-f">
+        <span>Commit to</span>
+        <select class="input" data-path="project.commitTo">
+          <option value="branch"${(draft.project.commitTo || 'branch') === 'branch' ? ' selected' : ''}>a branch per task</option>
+          <option value="current"${draft.project.commitTo === 'current' ? ' selected' : ''}>the branch that is checked out</option>
+        </select>
+        <em class="muted">${draft.project.commitTo === 'current'
+    ? 'Their mistakes land on the branch you work on. Small commits, working tree, no rewriting what is pushed.'
+    : 'Keeps your default branch clean and leaves you to merge — at the cost of branches nobody looks at.'}</em>
+      </label>
+
+      <label class="set-f wide">
+        <span>Git token</span>
+        <input class="input" type="password" autocomplete="off" spellcheck="false" id="git-token"
+               placeholder="${data.git?.hasToken ? `a token is set (from ${esc(data.git.from)}) — type to replace it` : 'github_pat_… for pushing'}">
+        <span class="set-key-actions">
+          <button class="btn" type="button" id="git-token-save">Save token</button>
+          ${data.git?.hasToken && data.git.from === 'this studio'
+    ? '<button class="btn ghost danger" type="button" id="git-token-clear">Remove</button>' : ''}
+        </span>
+        <em class="muted">${data.git?.hasToken
+    ? 'The team is told it can push, and will when a task is ready for review.'
+    : 'Without one the team is told plainly that this machine cannot push, and to commit locally '
+      + 'instead of spending turns on an authentication failure it cannot fix.'}
+        Anything running in this studio can use it, so scope it to the repositories you want the
+        team inside.</em>
+      </label>
+    </section>
+
+    <section class="set-block">
       <h3>History</h3>
       <p class="muted">The event log is append-only and nothing rewrites it — that is why a studio
       can be rebuilt from its file. So clearing hides, and only resetting deletes.</p>
@@ -1093,6 +1127,32 @@ ${target}
       return load();
     };
   });
+
+  const gitSave = $('git-token-save');
+  if (gitSave) {
+    gitSave.onclick = async () => {
+      const box = $('git-token');
+      const value = box?.value || '';
+      if (!value.trim()) return;
+      if (!data.secrets?.canStore && !confirm(
+        'The studio will make an encryption key and keep it in the same folder as the token it '
+        + 'protects. Save it anyway?',
+      )) return;
+      const r = await postJson('/api/secrets', { agent: 'git:token', value, generateKey: !data.secrets?.canStore });
+      if (box) box.value = '';
+      setNotice(r.ok ? 'ok' : 'warn', r.ok ? 'Git token stored. Restart for the team to be told they can push.' : esc(r.error || 'could not store it'));
+      return load();
+    };
+  }
+  const gitClear = $('git-token-clear');
+  if (gitClear) {
+    gitClear.onclick = async () => {
+      if (!confirm('Remove the stored git token? The team will be told it cannot push.')) return;
+      const r = await postJson('/api/secrets', { agent: 'git:token', value: '' });
+      setNotice(r.ok ? 'ok' : 'warn', r.ok ? 'Token removed.' : esc(r.error || 'could not remove it'));
+      return load();
+    };
+  }
 
   const clearBtn = $('set-clear');
   if (clearBtn) {
