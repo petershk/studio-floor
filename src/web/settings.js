@@ -42,6 +42,11 @@ let tab = 'location';
 let detectResult = null;  // the last /api/detect answer
 let detecting = false;
 const modelsByVendor = {};  // what each provider last said it serves
+// What happened the last time each agent was actually run, which is the only
+// evidence that a key works. Keyed by the id it was tested under, so renaming
+// an agent does not inherit the previous one's result.
+const agentTests = {};
+let testing = null;
 let modelsLoading = null;
 
 async function load() {
@@ -521,6 +526,23 @@ function restartButton(id = 'set-restart') {
 }
 
 /**
+ * What happened last time this agent was run.
+ *
+ * Deliberately blunt about which of the two it is. "The CLI is installed and a
+ * key is set" and "this agent answered" are different claims, and only the
+ * second one is evidence.
+ */
+function testResult(id) {
+  const r = agentTests[id];
+  if (!r) return '';
+  if (r.ok) {
+    return `<span class="pill ok">answered in ${Math.max(1, Math.round((r.ms || 0) / 1000))}s${
+      r.note ? ' — ' + esc(r.note) : ''}</span>`;
+  }
+  return `<span class="pill warn">${esc(String(r.error || 'it did not answer').slice(0, 160))}</span>`;
+}
+
+/**
  * The model list, from the provider where possible.
  *
  * A select rather than a text box with completions: a datalist filters itself
@@ -683,6 +705,14 @@ function authBlock(a, i, s) {
 
       <div class="set-f wide set-auth">
         <div>${status}</div>
+        <div class="set-key-actions">
+          <button class="btn" type="button" data-testagent="${esc(a.id)}"${testing === a.id ? ' disabled' : ''}>
+            ${testing === a.id ? 'Running…' : 'Test this agent'}</button>
+          ${testResult(a.id)}
+        </div>
+        <em class="muted">Runs the agent once with a trivial prompt. It costs a few tokens and it
+        is the only thing here that proves a key works — everything else is what the configuration
+        says, not what the provider does.</em>
         ${mode === 'key' ? `
           <label class="set-f wide">
             <span>API key</span>
@@ -1091,6 +1121,24 @@ ${target}
       return waitForRestart();
     };
   }
+
+  $('settings').querySelectorAll('[data-testagent]').forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.testagent;
+      // A test runs the roster this studio is running, not the draft on screen.
+      // Saying so beats testing something the human has not saved yet and
+      // reporting it as though it were the thing they are looking at.
+      if (dirty && !confirm(
+        'Unsaved changes are not tested: this runs the agent as the studio '
+        + 'currently has it.\n\nRun it anyway?',
+      )) return;
+      testing = id;
+      render();
+      agentTests[id] = await postJson('/api/agents/test', { agent: id });
+      testing = null;
+      render();
+    };
+  });
 
   $('settings').querySelectorAll('[data-models]').forEach((b) => {
     b.onclick = async () => {

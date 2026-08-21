@@ -22,6 +22,7 @@ import { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } from '../core/clone.
 import { resolveAuth } from '../core/auth.mjs';
 import { detect } from '../core/detect.mjs';
 import { fetchModels } from '../core/models.mjs';
+import { tryAgent } from '../core/try-agent.mjs';
 import {
   putSecret, listSecrets, removeSecret, secretNameFor, storageHint, generateKey, secretKey, NO_KEY,
 } from '../core/secrets.mjs';
@@ -284,6 +285,30 @@ export function createHttpServer(store, runner) {
             }, 403);
           }
           return switchProject(store, runner, body, res);
+        }
+
+        // Does this agent actually work? Everything else the panel knows is a
+        // statement about configuration, and all of it can be true of an agent
+        // that fails on its first turn.
+        if (p === '/api/agents/test') {
+          if (!sameOrigin(req)) {
+            return json(res, { ok: false, error: 'refused: this request came from another origin.' }, 403);
+          }
+          const id = String(body?.agent || '').trim();
+          const record = AGENTS.find((a) => a.id === id);
+          if (!record) {
+            return json(res, { ok: false, error: `no agent "${id}" in the running roster` }, 400);
+          }
+          return tryAgent(record).then((r) => {
+            store.append('human.control', null, {
+              action: 'test-agent',
+              text: r.ok
+                ? `tested ${id} — it answered in ${Math.round((r.ms || 0) / 1000)}s`
+                : `tested ${id} — it did not work: ${String(r.error || '').slice(0, 160)}`,
+              via: 'browser',
+            });
+            return json(res, { ...r, agent: id });
+          });
         }
 
         if (p === '/api/clear') {
