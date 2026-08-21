@@ -5,7 +5,10 @@
 # A project's own config and brief belong to that project, not to this repo.
 # They are ignored here so a clone used as its own workspace stays clean.
 /studio.config.json
-/PROJECT.md
+# The brief and anything beside it. Agents working in this clone write drafts
+# like PROJECT.md_ and PROJECT.draft.md, and a plain /PROJECT.md rule let those
+# be swept into the tool's own history by one `git add -A`.
+/PROJECT.md*
 
 # The same rule for the current layout. In someone else's project
 # studio_floor/config.json is the roster and is worth committing — here it is
