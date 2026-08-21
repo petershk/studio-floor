@@ -183,6 +183,48 @@ check('a restart in place still lands in the same project',
 check('and keeps the state directory it was given',
   inPlace.runs[1]?.stateDir === elsewhere, inPlace.runs[1]?.stateDir || 'dropped');
 
+// A container names the workspace, not a project. Somebody switches the studio
+// into one of the projects inside it, and the next `docker compose up` used to
+// put it straight back in the holding pen — where the team, finding a directory
+// with nothing in it, began inventing a project. Observed on the real droplet.
+const workspace = fs.mkdtempSync(path.join(tmp, 'ws-'));
+const chosen = path.join(workspace, 'chosen');
+fs.mkdirSync(chosen);
+fs.writeFileSync(path.join(chosen, 'PROJECT.md'), '# Chosen');
+fs.mkdirSync(path.join(tmp, 'user-resume'), { recursive: true });
+fs.writeFileSync(
+  path.join(tmp, 'user-resume', 'projects.json'),
+  JSON.stringify([{ path: chosen, name: 'chosen', lastOpened: '2026-08-21T00:00:00.000Z' }]),
+);
+
+const resumed = supervise([0], {
+  STUDIO_PROJECT_ROOT: workspace,
+  STUDIO_WORKSPACE: workspace,
+  STUDIO_USER_DIR: path.join(tmp, 'user-resume'),
+});
+check('a studio told to start at the workspace resumes the project it was switched to',
+  resumed.runs[0]?.root === chosen, resumed.runs[0]?.root || 'no run');
+
+// `--project` is somebody saying where to work right now, and it still wins.
+const explicit = supervise([0], {
+  STUDIO_PROJECT_ROOT: workspace,
+  STUDIO_WORKSPACE: workspace,
+  STUDIO_USER_DIR: path.join(tmp, 'user-resume'),
+  STUDIO_PROJECT_EXPLICIT: '1',
+});
+check('unless the human named a directory just now',
+  explicit.runs[0]?.root === workspace, explicit.runs[0]?.root || 'no run');
+
+// A laptop is unaffected: its project root is a repository rather than the
+// workspace, so there is nothing to resume into.
+const laptop = supervise([0], {
+  STUDIO_PROJECT_ROOT: tmp,
+  STUDIO_WORKSPACE: workspace,
+  STUDIO_USER_DIR: path.join(tmp, 'user-resume'),
+});
+check('and a studio started in a project stays in that project',
+  laptop.runs[0]?.root === tmp, laptop.runs[0]?.root || 'no run');
+
 console.log('\n what the feed shows');
 const line = describe({
   kind: 'studio.recovered',

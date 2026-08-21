@@ -29,7 +29,10 @@ import { fileURLToPath } from 'node:url';
 import {
   SRC_DIR, EXIT_SWITCH, EXIT_REFUSED, HOME_DIR_NAME, ensureUserDir,
 } from '../core/paths.mjs';
-import { takeSwitch, rememberProject, resetProjectState, inspect, problemsWith } from '../core/projects.mjs';
+import {
+  takeSwitch, rememberProject, resetProjectState, inspect, problemsWith, readProjects,
+} from '../core/projects.mjs';
+import { WORKSPACE_DIR } from '../core/clone.mjs';
 
 /**
  * The studio to run.
@@ -58,6 +61,32 @@ const HEALTHY_AFTER_MS = Number(process.env.STUDIO_HEALTHY_AFTER_MS || 60_000);
 const argv = process.argv.slice(2);
 
 let projectRoot = path.resolve(process.env.STUDIO_PROJECT_ROOT || process.cwd());
+
+/**
+ * Resume the project the human switched to, when the environment only named
+ * the workspace.
+ *
+ * A container sets STUDIO_PROJECT_ROOT=/workspace, which is a directory holding
+ * projects rather than a project. Somebody then switches the studio into one of
+ * them — and the next `docker compose up` put it back in the holding pen,
+ * because the environment is read at boot and wins. The team came back to a
+ * directory with nothing in it and began inventing a project there.
+ *
+ * Deliberately narrow. It applies only when the environment points at the
+ * workspace itself and the remembered project sits inside it, which is exactly
+ * the container case. `--project` still wins, because that is somebody saying
+ * where to work right now, and a laptop is unaffected: its project root is a
+ * repository, not the workspace.
+ */
+if (!process.env.STUDIO_PROJECT_EXPLICIT && path.resolve(projectRoot) === path.resolve(WORKSPACE_DIR)) {
+  const last = readProjects()[0];
+  const inside = last && path.resolve(last.path).startsWith(path.resolve(WORKSPACE_DIR) + path.sep);
+  if (inside && !problemsWith(inspect(last.path)).length) {
+    console.log(`  resuming ${last.path}
+`);
+    projectRoot = path.resolve(last.path);
+  }
+}
 let child = null;
 let shuttingDown = false;
 let started = false;

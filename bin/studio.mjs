@@ -40,6 +40,10 @@ if (projectIdx > -1) {
     process.exit(1);
   }
   process.env.STUDIO_PROJECT_ROOT = path.resolve(dir);
+  // So the supervisor can tell "the human named this directory just now" from
+  // "a container has this in its environment". They deserve different answers
+  // when the studio has been pointed somewhere else since.
+  process.env.STUDIO_PROJECT_EXPLICIT = '1';
   argv.splice(projectIdx, 2);
 }
 

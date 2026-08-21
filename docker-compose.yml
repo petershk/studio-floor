@@ -30,6 +30,11 @@ services:
       - ./workspace:/workspace
       # The state of the studio that runs before any repository is cloned.
       - studio-state:/state
+      # Which project the studio was last pointed at, and the list of ones it
+      # has seen. Without this, recreating the container sent it back to the
+      # workspace holding pen every time and the team started inventing a
+      # project in a directory with nothing in it.
+      - studio-user:/root/.studio-floor
     environment:
       # Required. Every /api/* route is refused without it, and those routes can
       # direct agents that run shell commands as root in this container.
@@ -86,3 +91,4 @@ services:
 
 volumes:
   studio-state:
+  studio-user:
