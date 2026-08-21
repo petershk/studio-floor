@@ -378,12 +378,11 @@ function projectBlock() {
         <div class="set-actions">
           <button class="btn primary" id="proj-switch" type="button"
             ${blocked || same ? 'disabled' : ''}>Work on this</button>
-          <button class="btn danger" id="proj-reset" type="button"
-            ${blocked ? 'disabled' : ''}>Work on it and erase its history</button>
         </div>
         <p class="muted">The team's memory lives inside the project, so coming back to a directory
-        picks up where it left off. Erasing deletes that recorded history — the code, brief and
-        config are untouched.</p>` : ''}
+        picks up where it left off. Erasing a history is on the studio tab, one button, acting on
+        the project you are actually in — it used to sit here, next to a path box pre-filled with
+        your current project, which is one click away from deleting the wrong afternoon.</p>` : ''}
 
       ${projects.recent?.length > 1 ? `<div class="set-recent">
         <span class="muted">Recent</span>
@@ -1109,12 +1108,22 @@ ${target}
   const eraseBtn = $('set-reset');
   if (eraseBtn) {
     eraseBtn.onclick = async () => {
-      if (!confirm(
-        'Delete every recorded event for this project?\n\n'
-        + 'Conversation, tasks, decisions, debates and history all go. The code, the brief '
-        + 'and this configuration are untouched.\n\n'
-        + 'This cannot be undone.',
-      )) return;
+      // Typed, not clicked. This deleted a real studio's afternoon on one
+      // confirmation, beside a path box that was helpfully pre-filled with the
+      // project you were already in.
+      const projectName = projects?.current?.name || '';
+      const typed = prompt(
+        `Erase the recorded history of "${projectName}"?\n\n`
+        + 'Conversation, tasks, decisions and transcripts go. The code, the brief and this '
+        + 'configuration are untouched, and the old history is moved aside on disk rather '
+        + 'than deleted, so it can be recovered.\n\n'
+        + 'Type the project name to confirm:',
+      );
+      if (typed === null) return;
+      if (typed.trim() !== projectName) {
+        setNotice('warn', 'That did not match the project name, so nothing was erased.');
+        return render();
+      }
       setNotice('', 'Erasing and restarting… this page will reconnect.');
       render();
       try {
@@ -1199,8 +1208,6 @@ ${target}
 
   const switchBtn = $('proj-switch');
   if (switchBtn) switchBtn.onclick = () => go(false);
-  const resetBtn = $('proj-reset');
-  if (resetBtn) resetBtn.onclick = () => go(true);
 
   const newBox = $('proj-new');
   if (newBox) {

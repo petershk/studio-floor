@@ -212,8 +212,27 @@ export function resetProjectState(dir) {
     ? path.join(root, '.studio')
     : path.join(root, HOME_DIR_NAME, 'state');
   if (!fs.existsSync(stateDir)) return { removed: false, path: stateDir };
-  fs.rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
-  return { removed: true, path: stateDir };
+
+  // Moved aside rather than deleted.
+  //
+  // This was an rmSync, and it took a real studio's afternoon with it: fifty
+  // minutes of conversation, five tasks and every transcript, gone on one
+  // click and one confirmation, with no copy anywhere because the state
+  // directory is gitignored by design. The event log is the only record a
+  // studio has, and "are you sure" is not a backup.
+  //
+  // The studio still starts clean, which is the whole point of a reset, and
+  // the previous life sits next to it until somebody deletes it deliberately.
+  const parked = `${stateDir}.erased-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try {
+    fs.renameSync(stateDir, parked);
+    return { removed: true, path: stateDir, kept: parked };
+  } catch {
+    // A rename can fail across devices or on a file somebody still holds. A
+    // reset that cannot be made recoverable does not silently become the
+    // unrecoverable kind.
+    return { removed: false, path: stateDir, error: 'the old history could not be moved aside, so nothing was deleted' };
+  }
 }
 
 function atomicWrite(file, value) {

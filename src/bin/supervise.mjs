@@ -168,8 +168,12 @@ async function run() {
       console.error(`studio: staying on ${projectRoot}`);
     } else {
       if (req.reset) {
-        const { removed, path: p } = resetProjectState(req.path);
-        console.log(removed ? `\n  reset — removed ${p}` : `\n  reset — nothing to remove at ${p}`);
+        const { removed, path: p, kept, error } = resetProjectState(req.path);
+        if (removed) console.log(`
+  reset — ${p} moved to ${kept}
+  delete that directory when you are sure`);
+        else console.log(`
+  reset — ${error || `nothing to remove at ${p}`}`);
       }
       // Only a move to somewhere else is a move. Restarting in place goes
       // through this same path — it is a switch to the project already open —

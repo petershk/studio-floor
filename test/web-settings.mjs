@@ -395,6 +395,24 @@ console.log('\n restarting');
     kept.id === 'claude' && kept.label === 'The Adversary', JSON.stringify(kept));
 }
 
+{
+  // A real studio lost fifty minutes of conversation, five tasks and every
+  // transcript to one click and one confirmation. The destructive button sat
+  // beside a path box that had been helpfully pre-filled with the project the
+  // human was already in, so "erase its history" needed no typing and no
+  // target. There is one erase control now, it lives with the other studio
+  // controls, and it acts on the project you are in.
+  const p = await panel(
+    { id: 'a', provider: 'claude', auth: 'auto', credentials: { ok: true, detail: 'fine' } },
+    undefined,
+    projectsPayload({ projectPath: '/repo', workspacePath: '/ws', holds: [] }),
+    'location',
+  );
+  p.edit('agents.0.vendor.select', 'anthropic');  // force a render
+  check('the location tab has no way to erase a history',
+    !/erase its history/i.test(p.html()) && !/proj-reset/.test(p.html()), 'a destructive control is still there');
+}
+
 console.log('\n tabs');
 
 {
