@@ -4,6 +4,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import {
   WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT, STATE_DIR, HOME_DIR,
+  HOME_DIR_NAME,
 } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
 import {
@@ -505,12 +506,18 @@ async function runUpdate(store, runner, res) {
  */
 function listWorkspace() {
   try {
-    // The studio's own directories are not projects. Offering `studio_floor`
-    // or the state directory as somewhere to work would point the team at the
+    // The studio's own directories are not projects. Offering `studio_floor` or
+    // a state directory as somewhere to work would point the team at the
     // studio's memory of itself.
+    //
+    // Matched by name as well as by path: the paths are those of the project
+    // currently open, so after switching into a cloned repo the previous
+    // project's `studio_floor` stopped being recognised and appeared in the
+    // list. Any directory called that is the studio's, whoever it belongs to.
     const ours = new Set([path.resolve(STATE_DIR), path.resolve(HOME_DIR)]);
+    const oursByName = new Set([HOME_DIR_NAME, '.studio', 'node_modules']);
     return fs.readdirSync(WORKSPACE_DIR, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules')
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !oursByName.has(e.name))
       .filter((e) => !ours.has(path.resolve(WORKSPACE_DIR, e.name)))
       .map((e) => {
         const full = path.join(WORKSPACE_DIR, e.name);
