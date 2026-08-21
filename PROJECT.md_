@@ -1,0 +1,242 @@
+# studio-floor
+
+> **STATUS: DRAFT — written by claude (agent), not by the human.**
+> The Goal section below is transcribed *verbatim* from the human. Everything
+> marked **[inferred]** is my reading and is open to correction. DEC-02 closed
+> the blocking location question. DEB-01 is still open.
+
+## Where this team is standing
+
+Two different things share this directory, and confusing them has already cost
+us a session:
+
+1. **The tool.** `C:\studio-floor` is the source of **Studio Floor** v0.1.0 — the
+   multi-agent studio that is running us right now. Node >=20, ESM, **zero
+   runtime dependencies**, append-only event log in `studio_floor/state/events.jsonl`,
+   every view a projection of that log. We are inside the thing we can edit.
+2. **The work.** The human's actual creative direction is a **card puzzle game**.
+
+This file is the brief for the team, so it has to hold both.
+
+## Goal
+
+The human's words, unedited, as written to `test_project/PROJECT.md` at 08:46:
+
+> Build a fun puzzle game with playing cards that increases in difficulty and
+> can be played on a web/phone interface.
+>
+> **What done looks like:** Simple and playful.
+>
+> **Constraints:** needs to be mobile friendly and in a browser.
+
+Plus, in reply to our request for direction: *"go ahead and be creative with it
+this time."*
+
+## The proposal — "Collapse"  **[inferred: this is claude's pitch, not the human's]**
+
+One rule. Learnable in a sentence. Deep enough to be a real puzzle.
+
+> A column of face-up cards. Tap a card to drop it onto the card **1 or 3
+> places above it** if they share a **rank** or a **suit**. The pile closes up.
+> Collapse the whole column into a single pile and you have won.
+
+That is the entire game. It is a modernised *Accordion*, and it is chosen for
+reasons that are specific to the constraints we were given:
+
+- **One tap, no drag.** Drag targets are the thing that makes card games bad on
+  a phone. There is nothing to drag here.
+- **Portrait-native only if deals are short.** A column is the shape of a
+  phone. A 52-card column is unreadable stamps. The one-tap argument survives
+  if visible piles stay around 8–16; it is false for a full Accordion deal.
+- **"Simple and playful"** is satisfied by the rule count, not by the art. One
+  rule, instant restart, a board that visibly *shrinks* as you win.
+
+### The decision the whole thing turns on
+
+~~Classical Accordion is dealt at random and is won maybe once in thirty
+attempts. That makes it a patience, not a puzzle.~~ **DEAD as a reason:**
+that sentence is a fact about greedy human play, not solvability. Measured
+on `test_project/check-collapse.mjs` (seeded shuffle, perfect play,
+last-is-top singletons): 8 cards 3.0% winnable (500 seeds; grok reproduced
+the same 15/500), 12 cards ~7–9%, 16 cards 31.4% (Claude), 52 cards 76
+proven-winnable / 0 proven-unwinnable / 24 unknown at a 400k-node cap.
+Do not cite one-in-thirty as why we generate.
+
+The phone still forces short columns, and short shuffled columns are almost
+never winnable. That is the honest reason reverse generation still matters.
+
+So the deal must be **generated backwards from a solved state** if we keep
+deals in the 8–16 pile band, never shuffled:
+begin with one complete pile and run legal moves in reverse until the board is
+the length we want. Every deal is then provably winnable, and difficulty stops
+being "more cards" and becomes something we can actually grade:
+
+- ~~length of the shortest solution~~ **DEAD as a grading knob:** every
+  merge removes one pile, so the shortest path is always N-1. Do not
+  implement or cite this.
+- ~~how many legal moves are traps that strand a card~~ **DEAD:** DEC-06
+  falsified trap-counting — 453 zero-trap deals span 0.02% to 100% random-play.
+- ~~how early the first irreversible mistake can be made~~ **untested and
+  unused.** Nothing was ever built on it.
+
+**What grading actually became.** DEC-06 selects by exact random-play P(win) in
+a 2-20% band; that number is now verified against two independent scorers
+(411/411, and no board within a third of its node budget). DEC-07's greedy cut
+is verified against the shipped catalog (flag agrees with playing first-legal on
+411/411; cut at rung 279; nothing after it falls to mindless tapping). **DEC-06's
+metric is not in doubt and is not reopened here.**
+
+A *second*, seedless knob is measured but NOT shipped and NOT chosen: the
+smallest instruction set that wins a deal for certain. It orders the same 411
+into a monotone climb (locked: 0 of the first 41; not-always-won: 41 of the
+last 41) where the shipped order correlates only ~0.3 with it — 0.304 as a
+Pearson on the raw levels, 0.313 as a Spearman with tied ranks averaged. Say
+"about 0.3" and name the statistic: an ordinal-rank version that does *not*
+average ties reports 0.58 on the same data, because a mostly-tied column ranks
+in the order it happens to be stored. Whether the reordering is an
+improvement depends entirely on open question 5 — it is a climb *for a player
+being taught the ladder in stages*, and grading for that player is a choice
+nobody has made. See TASK-21 and `WHAT-WE-KNOW.md`.
+
+**And it is not the cheap change three of us called it.** Everyone here,
+including the human twice, described it as "the same 411 in a new order". Three
+things found by attempting the implementation say otherwise:
+
+1. **The order is not stored.** `buildCurve` re-derives it every load: filter the
+   559 to the band, sort by `p`, then apply DEC-07's greedy cut to the back half
+   *of that sort*. Editing `deals.json` into a new order is a no-op.
+2. **Sorting the band changes what the catalog IS, and unstably.** The cut lands
+   on different deals, so membership *and size* follow the tie-break inside the
+   demand class: 411 deals under demand-then-p-desc, 388 under demand-then-source,
+   375 under demand-then-p-asc. Cutting by `p` first and reordering the survivors
+   is 411 with identical membership under all three.
+3. **Even the membership-preserving version breaks DEC-07.** `greedyCut` scans
+   for the last `greedy === true` deal, which is only correct because sorting by
+   `p` clusters them at the front (live cut 279, zero greedy after it). Reordered
+   by demand the last one sits at rung 395, so `rerollAtStep`'s guard stops
+   protecting rungs 280-394 and "another this hard" can deal a mindless-tapping
+   win in the late game — 11 such deals in the reroll window at step 300.
+
+So implementing TASK-21 means: reorder **after** the cut, make `greedyCut` a
+stored boundary rather than a scan, re-derive the reroll window, and never sort
+the band before the cut. Still not a data change. No longer a one-liner.
+
+**The reverse-collapse spike already ran.** TASK-05 / DEC-05: 8–16 pile reverse
+walks are well-defined and the boards they produce are forward-winnable. Do not
+re-run the 50-line spike. Random reverse walks are not a finished difficulty
+curve — DEC-06 selects by exact random-play P(win) instead.
+
+### Deliberately in scope
+
+- A **daily deal** everyone gets the same day — one shared puzzle, a shareable
+  spoiler-free result. It costs almost nothing and it is most of the "playful".
+
+Undo, guaranteed-solvable deals, and a daily are **not** a package. DEB-01 is
+open on whether the player must be allowed to brick a winnable deal. Do not
+treat unlimited undo as in-scope until that debate closes. Limited undo as
+quality-of-life is still on the table.
+
+### Deliberately out of scope for v1
+
+Accounts, servers, persistence beyond `localStorage`, animation frameworks,
+sound, multiplayer.
+
+## Constraints
+
+From the human:
+
+- Mobile friendly. In a browser.
+
+**[inferred, studio convention — not a constraint we found in the spec]**
+
+The tool's `package.json` has `"dependencies": {}`. That is a fact about
+studio-floor, not about the game. Zero runtime deps and no build step are a
+convention we would have to argue for on the game: static HTML, CSS and ESM
+that a phone can load directly is a good default, not a requirement the human
+wrote. Node >=20 / ESM for anything tooling-side, and plain `node test/run.mjs`
+tests, stay as the house style of this repo.
+
+## Current state of the tool  **[inferred: measured this session]**
+
+What works: the runner, the event log, the web UI, adapters for claude and grok,
+`npm test`. What does not:
+
+- **`studio doctor` reports "ready" when it is not.** It green-lit a PROJECT.md
+  that was still the unedited init template. TASK-02 completed; the remaining
+  risk is `prompts.mjs` / `projects.mjs` treating file existence as human
+  authorship. Not an open grok task.
+- **The runner cannot launch a `.cmd`-shimmed CLI on Windows.** npm installs some
+  provider CLIs as `.cmd` with no `.exe`; `spawn()` without a shell cannot see
+  them. Measured, not reasoned: `shell: true` and `cmd.exe /c` are both
+  *unacceptable* fixes here, because the runner puts model-authored prompt text
+  on argv — under `cmd /c` an argument containing `&` executes, and under
+  `shell: true` a `%PATH%` in a prompt expands to the real machine layout.
+  `src/core/executable.mjs` unwraps the shim to its underlying script instead.
+  Owned by claude; the fix landed and `de86b5f` is in the log ("Read an npm
+  shim's entrypoint on any platform"). Status here was stale for a full session.
+- **A provider that cannot start burns the entire turn budget in silence.**
+  Claude says the async `spawn`/`error` split now sets `launchFailed`. Folded
+  into TASK-01; I have not yet independently reviewed that path.
+
+## Decisions already made
+
+- `shell: true` is **forbidden on the runner's launch path.** Untrusted,
+  model-authored text is passed as argv there. `doctor` may use a shell because
+  it only ever runs `--version`. (claude proposed, grok tested it and agreed.)
+- **DEC-02:** the game is built under `test_project/`. The studio session stays
+  pointed at `C:\studio-floor`.
+- **DEC-03:** the human authorized best assumptions for the card game
+  (ATT-1622 / ATT-1623). Collapse is the working pitch, `test_project/` is
+  the location, no product UI until TASK-05 reports. DEB-01 stays open on
+  brick vs unlimited undo. This is not authorization to dogfood studio-floor.
+
+## Open questions
+
+1. **Is a guaranteed-solvable deal the right call at all?** DEB-01 is open.
+   Reverse generation (if the spike holds) proves a solution exists. That is
+   not a decision that every deal must be winnable *and* that the player cannot
+   fail. Grok's counter: a puzzle you cannot lose is a chore; the player must
+   be allowed to brick a winnable deal; restart-this-deal is the affordance,
+   not unlimited undo. Not recorded as decided.
+2. Is fixing the tool's own bugs (doctor, Windows launch) in scope at all, or is
+   the human's only interest the game? We have been assuming yes because a
+   broken runner blocks the game too, but nobody has said so.
+3. `runner.maxTurns` is **200** in `studio_floor/config.json`; the README
+   recommends 10–20 in bold, because every turn is a real model call. Not
+   changed — it is the human's config and their money.
+4. What "increases in difficulty" means to the human: a difficulty *curve within
+   one session*, or *separate levels/packs*? I assumed the former.
+5. **Which player is the difficulty for?** Unanswered, and it is underneath
+   everything else. The shipped curve climbs against random tapping (correlation
+   1.00 with the p it was ordered by) and barely against a player who has learned
+   the rule (0.25, and 0.09 against "the rule cannot win it at all"). Eleven
+   decisions about difficulty were made without stating this.
+
+## What is settled, and where the current numbers live
+
+**`test_project/WHAT-WE-KNOW.md` is the live record** — every current figure with
+its protocol attached, and a table mapping each retracted number to what replaced
+it. Read that before re-deriving anything. Highlights a new session should not
+re-measure: the two strategies argued about all day are one idea (they choose a
+different tap on 1.5% of a random walk and 0.4–0.5% on their own paths; 0 of
+1000 boards where one wins and the other cannot); the human's own rank-match
+sentence is the only genuinely distinct idea and is weaker; a four-sentence
+rule wins 88.6% of the live catalog
+for certain but *breaks* 29 deals it could otherwise stumble into winning, and
+that cost is intrinsic across all 120 orderings tested.
+
+**`test_project/PLAY-THESE.md` is the open experiment.** Five `?step=` links,
+verified to load and be winnable on the shipped page by three agents. Nobody has
+played this game. Every measurement here is about winning; the human asked for
+fun, and no instrument we have can see it.
+
+## Waiting on the human
+
+- **ATT-19578, direction.** Teach the ladder / change the rule so two goals
+  conflict / stop and spend on presentation / make the invisible choice visible.
+  Nothing product-side moves until this is answered. Changing the rule would
+  replace the catalog. TASK-21 is a *reorder of the same 411*, not a replace —
+  it stays proposed because the human has not chosen, not because it would
+  rebuild the pool.
+- **The five links.** Any answer, including "none of these felt different",
+  decides more than another measurement would.

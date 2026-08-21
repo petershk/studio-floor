@@ -356,27 +356,39 @@ export class Runner {
       //
       // An agent given a brief that is missing, or still the template `studio
       // init` writes, is told to read the directory, draft one and stop for
-      // confirmation — which is the right first turn and a terrible tenth. Left
-      // alone it kept taking turns against a project nobody had described,
-      // inventing one and building on the invention.
+      // confirmation. That is the right first turn and a terrible tenth: left
+      // alone the team kept taking turns against a project nobody had
+      // described, inventing one and building on the invention.
       //
-      // One turn to look, then stop until a human writes it down.
+      // The first version of this stopped the agents outright, and that was
+      // worse than the problem. On a real directory the team did exactly the
+      // right thing — audited it, wrote an inferred brief on a branch, raised
+      // it for the human — and then got stopped, at which point the human's
+      // replies could not reach them: a stopped agent has no loop to wake. They
+      // wait now instead, and anything the human says still gets through.
       const brief = briefState();
-      if (!brief.written && a.turn >= 1) {
-        this.store.append('agent.stopped', a.id, { reason: `no project brief: ${brief.why}` });
+      if (!brief.written && a.turn >= 1 && !this.store.inbox(a.id).items.length) {
         if (!this.briefReported) {
           this.briefReported = true;
           this.store.append('attention.raised', null, {
             kind: 'decision',
-            text: `The team has stopped because nothing says what this project is. ${brief.why} `
-              + 'Write it down and start the agents again — or use "Start something new" to make a '
-              + 'project with a brief to fill in.',
-            options: ['Write the brief, then start the agents', 'Point the studio at another project'],
+            text: `The team is waiting because nothing says what this project is. ${brief.why} `
+              + 'Write it down, or reply here and they will act on what you say — they are still '
+              + 'listening, they have just stopped guessing.',
+            options: ['Write the brief', 'Tell them what to do instead', 'Point the studio at another project'],
           });
         }
-        a.running = false;
-        break;
+        this.store.append('agent.state', a.id, {
+          state: 'waiting',
+          note: 'no project brief — waiting for the human rather than inventing one',
+        });
+        a.idleLevel = this.config.idleBackoffMs.length - 1;
+        await this.#waitForWake(a, this.config.idleBackoffMs[a.idleLevel]);
+        continue;
       }
+      // A brief that arrives clears the report, so the next project without one
+      // is announced rather than being covered by an hours-old attention item.
+      if (brief.written) this.briefReported = false;
 
       const decision = this.#shouldTakeTurn(a);
       if (!decision.go) {
