@@ -70,6 +70,7 @@ export const EVENT_KINDS = [
   'studio.started',
   'studio.note',
   'studio.recovered',
+  'studio.cleared',
   'log.recovered',
 
   'agent.registered',
@@ -153,6 +154,11 @@ export function describe(ev) {
   switch (ev.kind) {
     case 'studio.started':
       return 'Studio started';
+    case 'studio.cleared': {
+      const what = d.what === 'all' ? 'the conversation and the raw feed'
+        : d.what === 'raw' ? 'the raw feed' : 'the conversation';
+      return `${who === 'studio' ? 'The human' : who} cleared ${what} from view — the log itself still has it`;
+    }
     case 'studio.recovered': {
       // The gap in the feed is the point: whoever reads this later needs to
       // see that the studio was gone, for how long, and why it came back.

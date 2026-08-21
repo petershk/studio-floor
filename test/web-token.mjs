@@ -34,6 +34,10 @@ function check(name, ok, detail = '') {
 console.log('\na studio that wants a token\n');
 console.log(' taking it out of the URL');
 
+// Captured before the stub browser replaces it: the block at the bottom talks
+// to a real server and needs a fetch that returns real headers.
+const realFetch = globalThis.fetch;
+
 const TOKEN = 'ad0092ac2c006319c68dd60bc1eff59ef08453';
 const stub = installStubBrowser({ href: `http://127.0.0.1:4173/?token=${TOKEN}&tab=usage` });
 const tokenModule = await import(pathToFileURL(path.join(WEB, 'token.js')).href);
@@ -75,6 +79,37 @@ check('the stream URL carries it instead',
   tokenModule.withToken('/api/stream?since=4'));
 check('and a URL with no query gets one',
   tokenModule.withToken('/preview/') === `/preview/?token=${TOKEN}`);
+
+console.log('\n the console own files');
+
+{
+  // Twice this project shipped a fix to a page that carried on running the
+  // previous version, because the assets were served with no cache headers at
+  // all and browsers cached them heuristically. A studio that updates itself in
+  // place is exactly the case that breaks.
+  // Its own port, set before anything resolves one, so this never fights a
+  // studio somebody has running.
+  process.env.STUDIO_PORT = '4189';
+  process.env.STUDIO_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-cache-'));
+  const { createHttpServer } = await import('../src/server/server.mjs');
+  const { Store } = await import('../src/core/store.mjs');
+  const store = new Store();
+  const server = createHttpServer(store, null);
+  await new Promise((r) => { setTimeout(r, 500); });
+  const base = 'http://127.0.0.1:4189';
+
+  const first = await realFetch(`${base}/settings.js`);
+  const etag = first.headers.get('etag');
+  check('the console files revalidate rather than being cached blind',
+    first.headers.get('cache-control') === 'no-cache', first.headers.get('cache-control'));
+  check('and carry an etag, so revalidating is free when nothing changed', Boolean(etag), etag);
+
+  const again = await realFetch(`${base}/settings.js`, { headers: { 'if-none-match': etag } });
+  check('an unchanged file answers 304 with no body', again.status === 304, String(again.status));
+
+  server.close?.();
+  store.close?.();
+}
 
 console.log('\n when the studio refuses anyway');
 

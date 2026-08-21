@@ -191,6 +191,20 @@ function render() {
     </section>
 
     <section class="set-block">
+      <h3>History</h3>
+      <p class="muted">The event log is append-only and nothing rewrites it — that is why a studio
+      can be rebuilt from its file. So clearing hides, and only resetting deletes.</p>
+      <div class="set-actions">
+        <button class="btn" id="set-clear" type="button">Clear the conversation and feed</button>
+        <button class="btn danger" id="set-reset" type="button"${data.canRestart ? '' : ' disabled'}>
+          Erase this project's history</button>
+      </div>
+      <p class="muted">Clearing appends a marker: the views start from it, the file keeps every
+      word, and <code>studio agent log</code> still prints what was said. Erasing deletes the log
+      itself and restarts — the code, the brief and this configuration are untouched.</p>
+    </section>
+
+    <section class="set-block">
       <h3>Not editable here</h3>
       <p class="muted">
         The server address and token, per-agent <code>command</code>,
@@ -416,6 +430,19 @@ function updateBlock() {
       code. It never merges: if the update needs one, it stops and tells you. Your project,
       its brief and its history are untouched.</p>
     </section>`;
+}
+
+/** One POST, one parsed answer, and a readable failure when the studio is gone. */
+async function postJson(path, body) {
+  try {
+    return await (await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })).json();
+  } catch {
+    return { ok: false, error: 'the studio did not answer' };
+  }
 }
 
 /** Write-only: a key goes up, and nothing about it ever comes back. */
@@ -1010,6 +1037,39 @@ ${target}
       return load();
     };
   });
+
+  const clearBtn = $('set-clear');
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      const r = await postJson('/api/clear', { what: 'all' });
+      setNotice(r.ok ? 'ok' : 'warn',
+        r.ok ? 'Cleared. The log still has everything — this only moves where the views start.'
+          : esc(r.error || 'could not clear'));
+      render();
+    };
+  }
+
+  const eraseBtn = $('set-reset');
+  if (eraseBtn) {
+    eraseBtn.onclick = async () => {
+      if (!confirm(
+        'Delete every recorded event for this project?\n\n'
+        + 'Conversation, tasks, decisions, debates and history all go. The code, the brief '
+        + 'and this configuration are untouched.\n\n'
+        + 'This cannot be undone.',
+      )) return;
+      setNotice('', 'Erasing and restarting… this page will reconnect.');
+      render();
+      try {
+        const r = await postJson('/api/reset', {});
+        if (!r.ok) {
+          setNotice('warn', esc(r.error || 'the studio refused'));
+          return render();
+        }
+      } catch { /* the socket dies with the process, which is the restart */ }
+      return waitForRestart();
+    };
+  }
 
   for (const id of ['set-restart', 'set-restart-2', 'set-restart-3']) {
     const b = $(id);

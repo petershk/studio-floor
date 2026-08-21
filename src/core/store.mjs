@@ -246,11 +246,18 @@ export class Store extends EventEmitter {
 
   // ---------------------------------------------------------------- queries
 
-  getEvents({ since = 0, kinds = null, agent = null, raw = null, limit = 500, order = 'asc' } = {}) {
+  getEvents({
+    since = 0, kinds = null, agent = null, raw = null, limit = 500, order = 'asc', includeCleared = false,
+  } = {}) {
+    // Everything before a clear is still in the file and still readable by
+    // anything that asks for it, which is the difference between hiding and
+    // deleting. The feed asks for the hidden version; `studio log` does not.
+    const clearedSeq = includeCleared ? 0 : (this.state.clearedAt?.seq || 0);
     let out = [];
     for (let i = this.events.length - 1; i >= 0; i--) {
       const ev = this.events[i];
       if (ev.seq <= since) break;
+      if (ev.seq <= clearedSeq) break;
       if (kinds && !kinds.includes(ev.kind)) continue;
       if (agent && ev.agent !== agent && ev.data?.from !== agent) continue;
       if (raw === true && !isRaw(ev.kind)) continue;
@@ -769,6 +776,25 @@ export class Store extends EventEmitter {
         break;
     }
 
+    // Clearing is an event, not an edit.
+    //
+    // The log is append-only and nothing rewrites it — that invariant is why a
+    // studio can be rebuilt from its file and why two agents cannot lose each
+    // other's history. So "clear the conversation" appends a marker, and the
+    // projection empties itself when it reaches one. Replay reproduces exactly
+    // the same result, the file still holds every word, and `studio log --raw`
+    // can still show what was said.
+    if (ev.kind === 'studio.cleared') {
+      const what = d.what || 'conversation';
+      if (what === 'conversation' || what === 'all') {
+        s.messages.length = 0;
+        s.timeline.length = 0;
+      }
+      // The raw feed is served from the log rather than from here, so the
+      // marker is all this projection needs to record for it.
+      s.clearedAt = { seq: ev.seq, ts: ev.ts, what };
+    }
+
     if (isTimeline(ev.kind)) {
       const displayTs = d.historical && d.originalTs ? d.originalTs : ev.ts;
       s.timeline.push({ seq: ev.seq, ts: displayTs, kind: ev.kind, agent: agentId, line: describe(ev), data: d });
@@ -808,6 +834,8 @@ function emptyState() {
     agents,
     tasks: {},
     messages: [],
+    // Set by a studio.cleared marker: where the visible history starts.
+    clearedAt: null,
     decisions: [],
     debates: {},
     questions: [],

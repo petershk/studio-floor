@@ -286,6 +286,20 @@ export function createHttpServer(store, runner) {
           return switchProject(store, runner, body, res);
         }
 
+        if (p === '/api/clear') {
+          if (!sameOrigin(req)) {
+            return json(res, { ok: false, error: 'refused: this request came from another origin.' }, 403);
+          }
+          return json(res, clearFeeds(store, body));
+        }
+
+        if (p === '/api/reset') {
+          if (!sameOrigin(req)) {
+            return json(res, { ok: false, error: 'refused: this request came from another origin.' }, 403);
+          }
+          return resetProject(store, runner, res);
+        }
+
         if (p === '/api/restart') {
           if (!sameOrigin(req)) {
             return json(res, { ok: false, error: 'refused: this request came from another origin.' }, 403);
@@ -377,7 +391,7 @@ export function createHttpServer(store, runner) {
         }
       }
 
-      return serveStatic(p, res);
+      return serveStatic(p, req, res);
     } catch (err) {
       return json(res, { error: String(err?.stack || err) }, 500);
     }
@@ -677,6 +691,60 @@ function readConfigForUi() {
     // when the file and the running studio have diverged.
     running: AGENTS.map((a) => ({ id: a.id, provider: a.provider })),
   };
+}
+
+/**
+ * Hide the conversation and the raw feed, without touching either.
+ *
+ * The log is append-only and nothing rewrites it — that invariant is why a
+ * studio can be rebuilt from its file and why no agent can lose another's
+ * history. So clearing is itself an event: a marker goes on the end, and the
+ * projections empty when replay reaches it. The file still holds every word,
+ * `studio log` still prints it, and a restart produces exactly the same view
+ * rather than a different one.
+ *
+ * Which is why this is "clear" and the destructive one is called reset.
+ */
+function clearFeeds(store, body) {
+  const what = ['conversation', 'raw', 'all'].includes(body?.what) ? body.what : 'all';
+  store.append('studio.cleared', null, { what, via: 'browser' });
+  return { ok: true, what, seq: store.seq };
+}
+
+/**
+ * Delete this project's recorded history and start again.
+ *
+ * The genuinely destructive one, and the only way to actually remove anything:
+ * the supervisor deletes the state directory while nothing is holding it open,
+ * then starts a fresh studio in the same project. Code, brief and config are
+ * untouched — this is the team's memory, not their work.
+ */
+async function resetProject(store, runner, res) {
+  if (!process.env.STUDIO_SUPERVISED) {
+    return json(res, {
+      ok: false,
+      error: 'this studio was started without a supervisor, so it cannot delete its own history '
+        + 'and come back. Start it with `studio start`, or stop it and remove the state directory.',
+    }, 409);
+  }
+
+  store.append('human.control', null, {
+    action: 'reset',
+    text: 'erased the recorded history for this project and restarted the studio',
+    via: 'browser',
+  });
+
+  json(res, { ok: true, resetting: PROJECT_ROOT });
+
+  setTimeout(async () => {
+    try {
+      await runner?.stopAll('the human reset the studio');
+    } catch { /* leaving anyway */ }
+    requestSwitch(PROJECT_ROOT, { reset: true });
+    store.close?.();
+    process.exit(EXIT_SWITCH);
+  }, 250);
+  return undefined;
 }
 
 /**
@@ -1759,14 +1827,44 @@ function html(res, code, body) {
   res.end(body);
 }
 
-function serveStatic(p, res) {
+/**
+ * The console's own files.
+ *
+ * Served with no cache headers at all until now, which means browsers cached
+ * them heuristically — and a studio that updates itself in place is exactly the
+ * case that breaks. Twice this project has shipped a fix to a page that carried
+ * on running the previous version: once when the token handling was added, and
+ * once when saving an agent stopped silently dropping fields. Both looked like
+ * the bug had not been fixed, on a machine where the server already had the fix.
+ *
+ * `no-cache` does not mean "do not store", it means "revalidate before use". So
+ * an unchanged file still costs a conditional request and no body, and a
+ * changed one can never be missed. That is the right trade for an app whose
+ * server can be replaced underneath an open tab.
+ */
+function serveStatic(p, req, res) {
   const rel = p === '/' ? 'index.html' : p.replace(/^\//, '');
   const file = path.join(WEB_DIR, rel);
   if (!file.startsWith(WEB_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     return end(res, 404, 'not found');
   }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
+
+  const stat = fs.statSync(file);
+  // Size and mtime: enough to change whenever the file does, cheap enough to
+  // compute per request, and stable across a restart that changed nothing.
+  const etag = `W/"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
+  if (req?.headers['if-none-match'] === etag) {
+    res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
+    return res.end();
+  }
+
+  res.writeHead(200, {
+    'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+    'Cache-Control': 'no-cache',
+    ETag: etag,
+    'Last-Modified': stat.mtime.toUTCString(),
+  });
+  return fs.createReadStream(file).pipe(res);
 }
 
 // -------------------------------------------------------------------- utils
