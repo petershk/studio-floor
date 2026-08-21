@@ -1232,18 +1232,31 @@ async function save() {
       name: draft.project.name,
       brief: draft.project.brief,
       goal: draft.project.goal || '',
+      // Missing entirely until now, so the build subdirectory could be typed,
+      // saved, and silently discarded.
+      workDir: draft.project.workDir || '',
     },
-    agents: draft.agents.map((a) => {
-      const out = { id: a.id, provider: a.provider, persona: a.persona };
-      if (a.label) out.label = a.label;
-      if (a.model) out.model = a.model;
-      if (a.preset) out.preset = a.preset;
-      if (a.baseUrl) out.baseUrl = a.baseUrl;
-      if (a.apiKeyEnv) out.apiKeyEnv = a.apiKeyEnv;
-      if (a.sandbox) out.sandbox = a.sandbox;
-      if (a.permissionMode) out.permissionMode = a.permissionMode;
-      return out;
-    }),
+    // Every field, every time, including the empty ones.
+    //
+    // These used to be sent only when truthy, which made clearing one
+    // impossible: switching an agent from xAI back to Anthropic empties
+    // `preset` and `baseUrl` here, those keys were dropped from the request,
+    // and the server kept what it already had. The panel then reloaded from
+    // the file and showed the old values, which reads exactly like a save that
+    // did not happen.
+    agents: draft.agents.map((a) => ({
+      id: a.id,
+      provider: a.provider,
+      persona: a.persona,
+      label: a.label || '',
+      model: a.model || '',
+      preset: a.preset || '',
+      baseUrl: a.baseUrl || '',
+      apiKeyEnv: a.apiKeyEnv || '',
+      sandbox: a.sandbox || '',
+      permissionMode: a.permissionMode || '',
+      auth: a.auth || '',
+    })),
     runner: {
       ...draft.runner,
       idleBackoffMs: String(draft.runner.idleBackoffMs)

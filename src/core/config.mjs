@@ -740,16 +740,39 @@ export function applyConfigPatch(raw, patch = {}, { knownProviders = null } = {}
           .filter((a) => a && typeof a === 'object')
           .map((a) => [a.id, a]),
       );
+      const previousByIndex = (Array.isArray(raw?.agents) ? raw.agents : [])
+        .filter((a) => a && typeof a === 'object');
+
       next.agents = patch.agents.map((incoming, i) => {
-        const kept = previous.get(incoming?.id) || {};
+        // Matched by id, and by position when the id is new — which is what a
+        // rename looks like from here. Without the fallback, renaming an agent
+        // silently dropped its file-only fields: its `command`, its `env`, the
+        // things the panel is not allowed to set and therefore cannot put back.
+        const kept = previous.get(incoming?.id) || previousByIndex[i] || {};
         const agent = {};
         for (const k of [...AGENT_PROTECTED_OPTIONS, ...AGENT_SECRET_OPTIONS]) {
           if (kept[k] !== undefined) agent[k] = kept[k];
         }
-        if (kept.options) agent.options = kept.options;
+        // Only the file-only keys are carried across, never the whole options
+        // object. Carrying all of it meant an edit could never clear anything:
+        // switching an agent back to its own provider emptied `preset` and
+        // `baseUrl` in the panel, the save left them out, and this line put the
+        // old ones back — which reads as a save that silently did not happen.
+        if (kept.options && typeof kept.options === 'object') {
+          const carried = {};
+          for (const k of [...AGENT_PROTECTED_OPTIONS, ...AGENT_SECRET_OPTIONS]) {
+            if (kept.options[k] !== undefined) carried[k] = kept.options[k];
+          }
+          if (Object.keys(carried).length) agent.options = carried;
+        }
         for (const [k, v] of Object.entries(incoming || {})) {
           if (AGENT_EDITABLE.includes(k)) {
-            agent[k] = typeof v === 'string' ? v.trim() : v;
+            const val = typeof v === 'string' ? v.trim() : v;
+            // An empty value means "not set" rather than "set to nothing", so
+            // the key is left out of the file entirely. `preset: ""` would sit
+            // there looking like a configured preset that matches nothing.
+            if (val === '') continue;
+            agent[k] = val;
           } else if (AGENT_EDITABLE_OPTIONS.includes(k)) {
             if (k === 'sandbox' && v && !SANDBOXES.includes(v)) {
               errors.push(`agent #${i + 1}: sandbox must be one of ${SANDBOXES.join(', ')}`);

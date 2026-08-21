@@ -171,6 +171,10 @@ export class Runner {
       }
     }
     this.store.append('agent.stopped', id, { reason });
+    // Said here too, so stopping the last agent by hand is reported the same
+    // way as the last one falling over. A studio nobody is watching should not
+    // have to be inferred from the absence of events.
+    this.#noticeTeamDown();
   }
 
   async stopAll(reason = 'studio shutting down') {
@@ -553,6 +557,52 @@ export class Runner {
       });
       a.idleLevel = this.config.idleBackoffMs.length - 1;
     }
+
+    // An agent that cannot get permission will not get it by asking again in
+    // two minutes. The idle backoff was the only bound on this, which means a
+    // stuck agent kept spending a turn every two minutes indefinitely — thirty
+    // turns of nothing overnight, each one a real model call.
+    if (a.approvalBlocked >= 3) {
+      this.store.append('attention.raised', a.id, {
+        kind: 'blocked',
+        text: `${a.id} is stopped after ${a.approvalBlocked} turns spent waiting for a permission `
+          + 'nothing can grant. Change its permissions to dontAsk or bypassPermissions and start '
+          + 'it again, or run the step it is blocked on yourself.',
+      });
+      await this.stop(a.id, `blocked on approvals for ${a.approvalBlocked} turns`);
+      return;
+    }
+
+    this.#noticeTeamDown();
+  }
+
+  /**
+   * Nobody is working.
+   *
+   * Each agent knows why it stopped, and nobody was saying the thing that
+   * matters to a human who walked away for an hour: that the team as a whole is
+   * no longer running. Said once per outage rather than once per agent, and
+   * only when something actually stopped — a studio started with --no-agents
+   * has not fallen over, it has not begun.
+   */
+  #noticeTeamDown() {
+    const anyAlive = [...this.agents.values()].some((x) => x.running && !x.stopping);
+    if (anyAlive) {
+      this.teamDownReported = false;
+      return;
+    }
+    if (this.teamDownReported) return;
+    this.teamDownReported = true;
+
+    const s = this.store.state;
+    const why = [...this.agents.keys()].map((id) => {
+      const rec = s.agents[id] || {};
+      return `${id} ${rec.paused ? 'paused' : rec.state || 'stopped'}`;
+    }).join(', ');
+    this.store.append('attention.raised', null, {
+      kind: 'blocked',
+      text: `No agent is running, so nothing will happen until you start one: ${why}.`,
+    });
   }
 
   #spawnTurn(a, adapter, args, transcript) {
