@@ -7,6 +7,7 @@ import { getAdapter } from './adapters/index.mjs';
 import { resolveLaunch } from './launch.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
 import { resolveAuth } from '../core/auth.mjs';
+import { briefState } from '../core/projects.mjs';
 
 /**
  * The runner's own settings, flattened out of the config so the rest of this
@@ -349,6 +350,32 @@ export class Runner {
         this.store.append('agent.state', a.id, { state: 'paused', note: 'paused by the human' });
         await this.#waitForWake(a, 0);
         continue;
+      }
+
+      // Nobody has said what this project is.
+      //
+      // An agent given a brief that is missing, or still the template `studio
+      // init` writes, is told to read the directory, draft one and stop for
+      // confirmation — which is the right first turn and a terrible tenth. Left
+      // alone it kept taking turns against a project nobody had described,
+      // inventing one and building on the invention.
+      //
+      // One turn to look, then stop until a human writes it down.
+      const brief = briefState();
+      if (!brief.written && a.turn >= 1) {
+        this.store.append('agent.stopped', a.id, { reason: `no project brief: ${brief.why}` });
+        if (!this.briefReported) {
+          this.briefReported = true;
+          this.store.append('attention.raised', null, {
+            kind: 'decision',
+            text: `The team has stopped because nothing says what this project is. ${brief.why} `
+              + 'Write it down and start the agents again — or use "Start something new" to make a '
+              + 'project with a brief to fill in.',
+            options: ['Write the brief, then start the agents', 'Point the studio at another project'],
+          });
+        }
+        a.running = false;
+        break;
       }
 
       const decision = this.#shouldTakeTurn(a);

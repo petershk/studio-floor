@@ -23,6 +23,7 @@ import { resolveAuth } from '../core/auth.mjs';
 import { detect } from '../core/detect.mjs';
 import { fetchModels } from '../core/models.mjs';
 import { tryAgent } from '../core/try-agent.mjs';
+import { initProject } from '../core/scaffold.mjs';
 import {
   putSecret, listSecrets, removeSecret, secretNameFor, storageHint, generateKey, secretKey, NO_KEY,
 } from '../core/secrets.mjs';
@@ -263,6 +264,15 @@ export function createHttpServer(store, runner) {
             }, 403);
           }
           return runUpdate(store, runner, res);
+        }
+
+        // A project with nothing in it and no memory of anything else. The
+        // panel switches into it afterwards, the same as a clone.
+        if (p === '/api/projects/new') {
+          if (!sameOrigin(req)) {
+            return json(res, { ok: false, error: 'refused: this request came from another origin.' }, 403);
+          }
+          return json(res, newProject(store, body));
         }
 
         if (p === '/api/projects/clone') {
@@ -515,6 +525,48 @@ function listWorkspace() {
   } catch {
     return [];
   }
+}
+
+/**
+ * Start a project from nothing.
+ *
+ * The reason this exists rather than "just switch to an empty folder": a studio
+ * carries its memory in the project directory, so starting new work in a
+ * directory that has been used before hands the team somebody else's history
+ * and a brief describing a different thing. The whole point of the button is
+ * that the team remembers nothing.
+ *
+ * It refuses a directory that already exists with anything in it, because "new"
+ * is not a licence to move into somebody's project.
+ */
+function newProject(store, body) {
+  const name = String(body?.name || '').trim();
+  const problem = checkName(name);
+  if (problem) return { ok: false, error: problem };
+
+  const dest = path.join(WORKSPACE_DIR, name);
+  if (fs.existsSync(dest)) {
+    const entries = fs.readdirSync(dest).filter((e) => e !== '.' && e !== '..');
+    if (entries.length) {
+      return {
+        ok: false,
+        error: `${dest} already exists and is not empty — switch to it instead, or pick another name`,
+        path: dest,
+        exists: true,
+      };
+    }
+  }
+
+  const r = initProject(dest, { name });
+  if (!r.ok) return r;
+
+  store.append('human.control', null, {
+    action: 'new-project',
+    text: `started a new project in ${r.path}`,
+    via: 'browser',
+    target: r.path,
+  });
+  return { ok: true, path: r.path, name, created: r.created, info: inspect(r.path) };
 }
 
 /**

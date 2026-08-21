@@ -30,40 +30,6 @@ const SRC = path.resolve(HERE, '..', 'src');
  */
 const load = (...segments) => import(pathToFileURL(path.join(...segments)).href);
 
-const TEMPLATE_BRIEF = `# {{name}}
-
-<!--
-  This file is the authority on what the team builds. Every agent reads it in
-  full on its first turn, and it outranks anything else it is told.
-
-  Write it for a competent colleague who has never seen the project. Be specific
-  about what "done" looks like, and explicit about the decisions you have already
-  made so the team does not spend a debate rediscovering them.
--->
-
-## Goal
-
-Describe what you want built, and why.
-
-## What done looks like
-
-- A concrete, checkable outcome.
-- Another one.
-
-## Constraints
-
-- Languages, frameworks, or services that are required or forbidden.
-- Anything the agents must not touch.
-
-## Decisions already made
-
-- Things that are settled. The team should not reopen these without new information.
-
-## Open questions
-
-- Things you genuinely have not decided. The team should debate these and
-  escalate to you rather than guessing.
-`;
 
 const argv = process.argv.slice(2);
 const projectIdx = argv.findIndex((a) => a === '--project' || a === '-C');
@@ -161,21 +127,18 @@ function usage() {
 }
 
 async function init() {
-  const fs = await import('node:fs');
-  const { PROJECT_ROOT, CONFIG_FILE } = await load(SRC, 'core', 'paths.mjs');
-  const { defaultConfig, writeConfig } = await load(SRC, 'core', 'config.mjs');
+  const { PROJECT_ROOT } = await load(SRC, 'core', 'paths.mjs');
+  const { initProject } = await load(SRC, 'core', 'scaffold.mjs');
+  const { defaultConfig } = await load(SRC, 'core', 'config.mjs');
 
   const cfg = defaultConfig();
-  const { written, file } = writeConfig(CONFIG_FILE, cfg);
-  console.log(written ? `  created  ${file}` : `  kept     ${file} (already exists)`);
-
-  const briefPath = path.join(PROJECT_ROOT, cfg.project.brief);
-  if (!fs.existsSync(briefPath)) {
-    fs.writeFileSync(briefPath, TEMPLATE_BRIEF.replace('{{name}}', cfg.project.name));
-    console.log(`  created  ${briefPath}`);
-  } else {
-    console.log(`  kept     ${briefPath} (already exists)`);
+  const r = initProject(PROJECT_ROOT, { name: cfg.project.name });
+  if (!r.ok) {
+    console.error(`studio: ${r.error}`);
+    process.exit(1);
   }
+  for (const f of r.created) console.log(`  created  ${f}`);
+  if (!r.created.length) console.log('  kept     everything that was already here');
 
   console.log(`
   Next:

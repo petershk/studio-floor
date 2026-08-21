@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  PROJECTS_FILE, SWITCH_FILE, USER_DIR, HOME_DIR_NAME, DEFAULT_BRIEF, ensureUserDir,
+  PROJECTS_FILE, SWITCH_FILE, USER_DIR, HOME_DIR_NAME, DEFAULT_BRIEF, PROJECT_ROOT, ensureUserDir,
 } from './paths.mjs';
 
 /**
@@ -224,3 +224,31 @@ function atomicWrite(file, value) {
 }
 
 export { USER_DIR };
+
+/**
+ * Whether anybody has said what this project is.
+ *
+ * Three answers, and only one of them is a project: a brief that is missing, a
+ * brief that is still the template `studio init` writes, and a brief somebody
+ * wrote. An agent-inferred draft counts as written — it is a real description
+ * and the prompt already tells agents not to build on it unrecorded — because
+ * refusing to run against one would strand a team that correctly did its first
+ * job.
+ */
+export function briefState(projectRoot = PROJECT_ROOT, briefName = DEFAULT_BRIEF) {
+  const file = path.resolve(projectRoot, briefName);
+  let text = '';
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    return { written: false, why: `There is no ${briefName} in ${projectRoot}.`, file };
+  }
+  if (isUntouchedBrief(text)) {
+    return {
+      written: false,
+      why: `${file} is still the template studio init writes — nobody has filled it in.`,
+      file,
+    };
+  }
+  return { written: true, why: '', file, inferred: isInferredBrief(text) };
+}

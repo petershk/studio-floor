@@ -21,6 +21,7 @@ let projects = null;  // the last /api/projects payload
 let pathDraft = '';   // the directory the human is typing
 let probe = null;     // what /api/projects/inspect says about it
 let cloneDraft = '';  // the repository URL typed into the clone box
+let newDraft = '';    // the name typed into "start something new"
 // Which way the human is changing project: clone it, pick one already in the
 // workspace, or name a path. Defaulted once the payload arrives, because the
 // right first offer depends on whether anything is there yet.
@@ -309,12 +310,28 @@ function projectBlock() {
       <h4 class="set-sub">Work on something else</h4>
       <div class="set-modes">
         ${[
+    ['new', 'Start something new'],
     ['clone', 'Clone from git'],
     ...(ws?.holds?.length ? [['workspace', 'Something already here']] : []),
     ['path', 'A folder on this machine'],
   ].map(([id, label]) => `<button class="btn ${projectMode === id ? 'primary' : 'ghost'}"
           type="button" data-projmode="${id}">${label}</button>`).join('')}
       </div>
+
+      ${projectMode === 'new' ? `
+        <label class="set-f wide">
+          <span>Name it</span>
+          <input class="input" id="proj-new" value="${esc(newDraft)}" spellcheck="false"
+                 placeholder="what this project is called">
+        </label>
+        <div class="set-actions">
+          <button class="btn primary" id="proj-new-go" type="button"
+            ${!newDraft.trim() ? 'disabled' : ''}>Create it and work on it</button>
+        </div>
+        <p class="muted">Makes an empty project in <code>${esc(ws?.path || 'the workspace')}</code>
+        with a brief to fill in, and moves the studio into it. A studio keeps its memory inside the
+        project, so a team started here remembers nothing from whatever came before — which is the
+        reason to use this rather than pointing at a directory that has been used already.</p>` : ''}
 
       ${projectMode === 'clone' ? `
         <label class="set-f wide">
@@ -1174,6 +1191,37 @@ ${target}
   if (switchBtn) switchBtn.onclick = () => go(false);
   const resetBtn = $('proj-reset');
   if (resetBtn) resetBtn.onclick = () => go(true);
+
+  const newBox = $('proj-new');
+  if (newBox) {
+    newBox.oninput = () => {
+      const wasEmpty = !newDraft.trim();
+      newDraft = newBox.value;
+      if (wasEmpty !== !newDraft.trim()) renderKeepingCaret('proj-new');
+    };
+    newBox.onkeydown = (e) => { if (e.key === 'Enter') $('proj-new-go')?.click(); };
+  }
+
+  const newGo = $('proj-new-go');
+  if (newGo) {
+    newGo.onclick = async () => {
+      const name = newDraft.trim();
+      if (!name) return;
+      setNotice('', `Creating ${esc(name)}…`);
+      render();
+      const r = await postJson('/api/projects/new', { name });
+      if (!r.ok) {
+        setNotice('warn', esc(r.error || 'could not create it'));
+        return render();
+      }
+      newDraft = '';
+      pathDraft = r.path;
+      probe = null;
+      setNotice('', `Created ${esc(r.path)} — switching…`);
+      render();
+      return go(false);
+    };
+  }
 
   const cloneBox = $('proj-clone');
   if (cloneBox) {

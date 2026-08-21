@@ -208,6 +208,39 @@ check(
     && withInferred.includes('authorized that'),
 );
 
+// ------------------------------------------------- is there a project at all
+
+// An agent given a brief that is missing, or still the template `studio init`
+// writes, is told to read the directory, draft one and stop for confirmation.
+// That is the right first turn and a terrible tenth: left alone the team kept
+// taking turns against a project nobody had described, inventing one and then
+// building on the invention. The runner now stops after one turn, and this is
+// the distinction it stops on.
+const { briefState } = await import('../src/core/projects.mjs');
+
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Real\n\nBuild the thing.\n');
+check('a brief somebody wrote counts as a project', briefState(tmp).written === true);
+
+fs.rmSync(path.join(tmp, 'PROJECT.md'));
+const missing = briefState(tmp);
+check('no brief at all is not a project', missing.written === false);
+check('and it says which file it looked for', missing.why.includes('PROJECT.md'), missing.why);
+
+const { TEMPLATE_BRIEF } = await import('../src/core/scaffold.mjs');
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), TEMPLATE_BRIEF.replace('{{name}}', 'x'));
+const template = briefState(tmp);
+check('the untouched init template is not a project either', template.written === false);
+check('and it says so rather than naming a missing file',
+  /template/.test(template.why), template.why);
+
+// An agent-inferred draft is a real description, and the prompt already stops
+// anyone building on it unrecorded. Refusing to run against one would strand a
+// team that correctly did its first job.
+fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Collapse\n\n> **STATUS: DRAFT — written by claude (agent).**\n\nA game. **[inferred]**\n');
+const inferred = briefState(tmp);
+check('an agent-inferred draft does count, and is flagged as one',
+  inferred.written === true && inferred.inferred === true);
+
 // --------------------------------------------------------------------- git
 
 // Every agent is told how this team uses git, and it must describe THIS
