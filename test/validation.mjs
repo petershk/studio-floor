@@ -86,7 +86,11 @@ try {
     { verb: 'state', agent: 'claude', state: 'working', task: 'TASK-99' }, ['no such task']);
 
   console.log('\n debates and questions');
-  const deb = await accepts('a debate can be opened', { verb: 'debate.open', agent: 'claude', question: 'real?' });
+  const deb = await accepts('a debate can be opened',
+    { verb: 'debate.open', agent: 'claude', question: 'real?', relatedTask: t.id });
+  await refuses('a debate that names no work is refused once there is work to name',
+    { verb: 'debate.open', agent: 'claude', question: 'should the docs use sentence case?' },
+    ['task it blocks', 'concern']);
   await refuses('a position on a debate that does not exist is refused',
     { verb: 'debate.position', agent: 'claude', id: 'DEB-99', stance: 'x' }, ['no such debate', deb.id]);
   await accepts('a position on an open debate is recorded',
@@ -97,7 +101,7 @@ try {
   await refuses('closing an already-closed debate is refused',
     { verb: 'debate.close', agent: 'codex', id: deb.id, outcome: 'again' }, ['already', 'closed']);
   const deb2 = await accepts('a second debate can be opened',
-    { verb: 'debate.open', agent: 'claude', question: 'is an empty position a position?' });
+    { verb: 'debate.open', agent: 'claude', question: 'is an empty position a position?', relatedTask: t.id });
   await refuses('answering a question that does not exist is refused',
     { verb: 'question.close', agent: 'claude', id: 'Q-99', answer: 'x' }, ['no such question']);
 

@@ -71,9 +71,14 @@ The commands that matter (run \`${STUDIO_CMD} help\` for the full list):
         Work is explicit. States: proposed, ready, assigned, active, blocked,
         under-review, completed, rejected.
 
-    ${STUDIO_CMD} debate open --question "..."
+    ${STUDIO_CMD} debate open --question "..." --task TASK-03
     ${STUDIO_CMD} debate say DEB-01 --stance "..." --because "..." --critique "..."
     ${STUDIO_CMD} debate close DEB-01 --outcome "..." --decision DEC-02
+        A debate names the task it blocks. Once the board has tasks on it, one
+        that names none is refused: if no work is waiting on the answer, it is a
+        concern, and \`say --kind concern\` costs the team a line instead of a
+        turn each. Two rounds of positions is the budget; after that a position
+        is refused and you close it or escalate it to the human.
 
     ${STUDIO_CMD} decide --question "..." --chosen "..." --why "..." \\
         --alternatives "a|b" --participants ${agents.map((a) => a.id).join(',')}
@@ -111,7 +116,12 @@ The commands that matter (run \`${STUDIO_CMD} help\` for the full list):
 4. Disagree when you actually disagree. Do not agree to be agreeable. If another
    agent's argument is better, say so explicitly with \`--kind concede\` and change
    your position. Debate is how this team gets to good decisions — but debate to
-   decide, not to perform.
+   decide, not to perform. Debate what the project needs decided, not how the team
+   writes things down: conventions, documentation and process are not worth a turn
+   from every agent unless a task is actually blocked on them. Documents this team
+   wrote are the output of the work, not requirements for it — only the project
+   brief and recorded decisions are requirements, so do not mine your own notes
+   for new obligations.
 
 5. Delegate. If another agent is better suited, create a task owned by them and
    tell them why.

@@ -104,7 +104,7 @@ check('an agent sees work delegated to it', codexInbox.items.some((i) => i.kind 
 check('an agent sees messages addressed to it', (await (await fetch(`${base}/api/inbox?agent=grok`)).json()).items.some((i) => i.kind === 'message.sent'));
 
 // 5 — debate, changed mind, decision -----------------------------------------
-const deb = await act('grok', 'debate.open', { question: 'Bounded turns or resident agents?' });
+const deb = await act('grok', 'debate.open', { question: 'Bounded turns or resident agents?', relatedTask: t1.id });
 await act('grok', 'debate.position', { id: deb.id, stance: 'resident', because: 'no restart latency' });
 await act('codex', 'debate.position', { id: deb.id, stance: 'bounded turns', because: 'the human can interrupt cleanly', critique: 'resident agents cannot be paused mid-thought' });
 await act('grok', 'say', { text: 'Fair — interruptibility matters more than latency here.', kind: 'concede' });

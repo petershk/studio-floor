@@ -10,6 +10,7 @@ import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/eve
 import {
   MEMORY_SCOPES, MEMORY_LIMITS, activeMemory, scopeEntries, scopeChars,
 } from '../core/memory.mjs';
+import { DEBATE_ROUNDS, atRoundLimit, positionLimit } from '../core/debate.mjs';
 import {
   AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG, WORK_DIR,
 } from '../core/roster.mjs';
@@ -1215,13 +1216,34 @@ export function handleAction(store, body) {
     }
 
     case 'debate.open': {
+      // Malformed before unwanted: a call with neither a question nor a task is
+      // both, and answering it with "name a task" sends the agent to fix the
+      // wrong flag on a debate that never had a question.
+      const question = requireText(body.question, 'question',
+        'a debate with no question is one nobody else can take a position on');
+      // A debate has to name the work it is blocking.
+      //
+      // The cheapest thing an idle agent can do is open a debate, and the cheapest
+      // debate to open is one about the team's own process — what to call things,
+      // how to write the docs, which convention to follow. Those are unfalsifiable
+      // and unowned, so nothing ever closes them, and each one costs a turn from
+      // every agent that answers it. Naming a task is the test of whether a
+      // disagreement is blocking anything.
+      //
+      // Exempt while the board is empty. Before any task exists, every question is
+      // about how to divide the work, and that is the debate most worth having.
+      if (Object.keys(s.tasks).length && !body.relatedTask) {
+        throw new Error(
+          'a debate has to name the task it blocks (--task TASK-xx). If no task is waiting on'
+          + ' the answer, it is a concern rather than a debate: say it with'
+          + ` \`${STUDIO_CMD} say --kind concern\`, which costs the team a line instead of a turn each.`,
+        );
+      }
+      const relatedTask = body.relatedTask ? requireTask(s, body.relatedTask) : null;
+      // Allocated last. Everything above can refuse, and a refused debate that
+      // has already taken a number leaves a gap in the ids the human reads.
       const id = `DEB-${String(++s.counters.debate).padStart(2, '0')}`;
-      const ev = store.append('debate.opened', agent, {
-        id,
-        question: requireText(body.question, 'question',
-          'a debate with no question is one nobody else can take a position on'),
-        relatedTask: body.relatedTask ? requireTask(s, body.relatedTask) : null,
-      });
+      const ev = store.append('debate.opened', agent, { id, question, relatedTask });
       return { ok: true, seq: ev.seq, id };
     }
 
@@ -1229,8 +1251,21 @@ export function handleAction(store, body) {
     // ok and then vanish in the projection. Silent disappearance is the worst
     // failure this studio can have: an agent believes it argued, the record says
     // it never spoke. Fail loudly instead, and name the ids that do exist.
-    case 'debate.position':
-      requireOpenDebate(s, body.id);
+    case 'debate.position': {
+      const deb = requireOpenDebate(s, body.id);
+      // Where arguing stops being how this gets settled. The escalation rules
+      // already name a team still divided after two rounds as a reason to involve
+      // the human; this is that rule made enforceable rather than advisory. The
+      // disagreement is not being suppressed — it is being handed to the human,
+      // which is what an unresolved one is for.
+      if (atRoundLimit(deb)) {
+        throw new Error(
+          `${body.id} already has ${deb.positions.length} positions, which is ${DEBATE_ROUNDS} rounds for this team`
+          + ` (${positionLimit()}). Another one will not settle it. Close it with`
+          + ` \`${STUDIO_CMD} debate close ${body.id} --outcome "..."\`, or hand the disagreement to the human with`
+          + ` \`${STUDIO_CMD} attention --kind conflict --text "..."\`.`,
+        );
+      }
       return ok(store.append('debate.position', agent, {
         id: body.id,
         stance: requireText(body.stance, 'stance',
@@ -1240,6 +1275,7 @@ export function handleAction(store, body) {
         critique: body.critique || '',
         round: body.round || null,
       }));
+    }
 
     case 'debate.close':
       requireOpenDebate(s, body.id);
@@ -1764,7 +1800,7 @@ function show(v) {
 }
 
 function requireOpenDebate(s, id) {
-  if (s.debates[id]?.status === 'open') return;
+  if (s.debates[id]?.status === 'open') return s.debates[id];
   const known = Object.keys(s.debates);
   if (s.debates[id]) throw new Error(`debate ${id} is already ${s.debates[id].status}`);
   throw new Error(

@@ -9,6 +9,7 @@ import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
 import { resolveAuth } from '../core/auth.mjs';
 import { briefState } from '../core/projects.mjs';
 import { memoryFor } from '../core/memory.mjs';
+import { atRoundLimit } from '../core/debate.mjs';
 
 /**
  * The runner's own settings, flattened out of the config so the rest of this
@@ -938,7 +939,10 @@ function renderBrief(agentId, s) {
   if (openDebates.length) {
     L.push('Open debates:');
     for (const d of openDebates) {
-      L.push(`  ${d.id} ${clipText(d.question, BRIEF_LIMITS.decision)}`);
+      // A debate at the limit is shown as an instruction to end it rather than as
+      // an open invitation, because the invitation is what kept it alive.
+      const spent = atRoundLimit(d) ? '  [ROUND LIMIT REACHED — close it or escalate it this turn]' : '';
+      L.push(`  ${d.id} ${clipText(d.question, BRIEF_LIMITS.decision)}${spent}`);
       for (const p of d.positions) L.push(`     ${p.agent}: ${clipText(p.stance, BRIEF_LIMITS.decision)}`);
     }
   }

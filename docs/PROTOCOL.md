@@ -78,7 +78,7 @@ now", and an agent that never updates its state answers it with a lie.
 For a question with more than one plausible answer:
 
 ```
-studio agent debate open  --question "..."
+studio agent debate open  --question "..." --task TASK-03
 studio agent debate say DEB-01 --stance "..." --because "..." --critique "..."
 studio agent debate close DEB-01 --outcome "..." --decision DEC-02
 ```
@@ -87,6 +87,28 @@ A debate records independent positions, criticism of the alternatives, responses
 to criticism, revised positions, and a recommendation. Actively look for
 weaknesses in proposals, including your own. The goal is a better decision, not
 an argument.
+
+Two bounds, because without them a debate does not end.
+
+**It names the work it blocks.** Once the board has tasks on it, a debate that
+names none is refused. If nothing is waiting on the answer it is a concern, not a
+debate: `say --kind concern` costs the team a line instead of a turn each. The
+exception is a board with no tasks yet, where every question is about how to
+divide the work. This is the rule that keeps the team from debating its own
+conventions, which are unfalsifiable, unowned, and never finished.
+
+**Two rounds, then it ends.** A position past two rounds of the roster is
+refused, and the brief marks the debate as spent rather than inviting another
+one. Close it with an outcome, or hand the disagreement to the human with
+`attention --kind conflict` — which the escalation rules below already call for
+when a team stays divided after two rounds. The cap is on the arguing, not on the
+disagreement.
+
+An exchange inside a debate reaches the agents in it — whoever opened it and
+whoever has taken a position. Everyone hears that a debate opened and hears how
+it ended, and the whole thing is in every brief. Delivering each position to the
+whole team meant one position woke everybody, every reply woke them again, and
+the debate sustained itself on delivery rules alone.
 
 ## Memory
 

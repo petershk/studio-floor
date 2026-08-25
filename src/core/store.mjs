@@ -4,6 +4,7 @@ import { EVENT_LOG, STATE_DIR, ensureStateDir } from './paths.mjs';
 import { AGENT_IDS, describe, isBookkeeping, isRaw, isTimeline } from './events.mjs';
 import { UsageLedger } from './usage.mjs';
 import { CONFIG, getAgent } from './roster.mjs';
+import { inDebate } from './debate.mjs';
 
 /**
  * The single source of truth.
@@ -330,8 +331,18 @@ export class Store extends EventEmitter {
             d.changes?.owner === agentId ||
             d.changes?.reviewer === agentId ||
             d.previousOwner === agentId);
-      } else if (ev.kind === 'debate.opened' || ev.kind === 'debate.position' || ev.kind === 'debate.closed') {
+      } else if (ev.kind === 'debate.opened' || ev.kind === 'debate.closed') {
         relevant = ev.agent !== agentId;
+      } else if (ev.kind === 'debate.position') {
+        // A position used to wake every agent that had not written it. That is an
+        // amplifier, not a notification: one position wakes the rest of the team,
+        // each reply wakes the rest again, and the debate sustains itself on the
+        // studio's delivery rules whether or not the question matters.
+        //
+        // Everyone still hears a debate open and hears how it ended. The argument
+        // in between goes to the people in it — and it is in the brief, so an
+        // agent that wants to join can, on a turn it was woken for anyway.
+        relevant = ev.agent !== agentId && inDebate(this.state.debates[d.id], agentId);
       } else if (ev.kind === 'decision.recorded' || ev.kind === 'question.opened') {
         relevant = ev.agent !== agentId;
       }

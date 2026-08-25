@@ -12,6 +12,7 @@
 import { BASE_URL } from '../core/paths.mjs';
 import { AGENT_IDS } from '../core/events.mjs';
 import { memoryFor, MEMORY_SCOPES } from '../core/memory.mjs';
+import { atRoundLimit } from '../core/debate.mjs';
 
 /** Set on a studio that requires one; the runner passes it to every agent. */
 const TOKEN = process.env.STUDIO_TOKEN || '';
@@ -45,7 +46,10 @@ const HELP = `studio — team channel for the multi-agent studio
   studio task set <TASK-id> [--state x] [--owner y] [--reviewer z] [--result "..."] [--note "..."]
         task states: proposed ready assigned active blocked under-review completed rejected
 
-  studio debate open --question "..." [--task TASK-01]
+  studio debate open --question "..." --task TASK-01
+        A debate has to name the task it blocks (except before any task exists).
+        If nothing is waiting on the answer, use 'say --kind concern' instead.
+        Two rounds of positions, then close it or escalate it.
   studio debate say <DEB-id> --stance "..." --because "..." [--critique "..."]
   studio debate close <DEB-id> --outcome "..." [--decision DEC-01]
 
@@ -338,7 +342,13 @@ async function brief() {
     for (const d of openDebates) {
       L.push(`  ${d.id} ${d.question}`);
       for (const p of d.positions) L.push(`      ${p.agent}: ${p.stance}${p.because ? ` — because ${p.because}` : ''}`);
-      if (!d.positions.some((p) => p.agent === AGENT)) L.push('      ^ you have not stated a position yet');
+      // Prompting for a position the server would refuse is how a brief teaches an
+      // agent to waste a turn. Past the limit this says the opposite thing.
+      if (atRoundLimit(d)) {
+        L.push('      ^ round limit reached — close it or escalate it; another position will be refused');
+      } else if (!d.positions.some((p) => p.agent === AGENT)) {
+        L.push('      ^ you have not stated a position yet');
+      }
     }
   }
 

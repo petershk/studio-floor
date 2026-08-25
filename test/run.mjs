@@ -66,6 +66,7 @@ const STUDIO_TESTS = [
   'preview.mjs',
   'attention-withdraw.mjs',
   'memory.mjs',
+  'debate-bounds.mjs',
   'reassign-notice.mjs',
 ];
 
