@@ -59,6 +59,7 @@ export const MESSAGE_KINDS = [
  * `message.*`  observable agent-to-agent and human communication
  * `task.*`     explicit units of work
  * `decision.*` durable project knowledge
+ * `memory.*`   the small durable working set handed to every turn
  * `debate.*`   structured disagreement
  * `attention.*`things that genuinely want the human
  * `work.*`     files touched, validation runs
@@ -83,6 +84,9 @@ export const EVENT_KINDS = [
   'task.updated',
 
   'decision.recorded',
+
+  'memory.recorded',
+  'memory.forgotten',
 
   'debate.opened',
   'debate.position',
@@ -196,6 +200,10 @@ export function describe(ev) {
     }
     case 'decision.recorded':
       return `Decision ${d.id}: ${d.question} → ${firstLine(d.chosen)}`;
+    case 'memory.recorded':
+      return `${who} remembered ${d.id} [${d.scope}]${d.replaces ? ` (replacing ${d.replaces})` : ''}: ${firstLine(d.text)}`;
+    case 'memory.forgotten':
+      return `${who} forgot ${d.id}${d.reason ? ` — ${firstLine(d.reason)}` : ''}`;
     case 'debate.opened':
       return `${who} opened debate ${d.id}: ${d.question}`;
     case 'debate.position':

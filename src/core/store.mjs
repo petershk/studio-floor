@@ -559,6 +559,47 @@ export class Store extends EventEmitter {
         s.counters.decision = Math.max(s.counters.decision, numeric(d.id));
         break;
 
+      // Flat, and never keyed by scope. A bucketed shape would have to decide
+      // what to do with an entry whose scope it does not recognise, and every
+      // answer to that ends in a record that exists on disk and appears in no
+      // view. Views filter this list instead.
+      case 'memory.recorded': {
+        if (d.replaces) {
+          const prior = s.memory.find((m) => m.id === d.replaces && !m.forgotten);
+          if (prior) {
+            prior.forgotten = true;
+            prior.forgottenBy = agentId;
+            prior.forgottenReason = `replaced by ${d.id}`;
+            prior.forgottenAt = ev.ts;
+          }
+        }
+        s.memory.push({
+          id: d.id,
+          ts: ev.ts,
+          by: agentId,
+          scope: d.scope || 'team',
+          owner: d.owner || null,
+          text: d.text || '',
+          replaces: d.replaces || null,
+          forgotten: false,
+        });
+        s.counters.memory = Math.max(s.counters.memory, numeric(d.id));
+        break;
+      }
+
+      // Forgetting hides an entry from every brief; it does not delete it. The
+      // human can still see what the team used to believe and who stopped
+      // believing it, which is the same standard attention.withdrawn holds.
+      case 'memory.forgotten': {
+        const entry = s.memory.find((m) => m.id === d.id);
+        if (!entry) break;
+        entry.forgotten = true;
+        entry.forgottenBy = agentId;
+        entry.forgottenReason = d.reason || '';
+        entry.forgottenAt = ev.ts;
+        break;
+      }
+
       case 'debate.opened':
         s.debates[d.id] = {
           id: d.id,
@@ -837,6 +878,7 @@ function emptyState() {
     // Set by a studio.cleared marker: where the visible history starts.
     clearedAt: null,
     decisions: [],
+    memory: [],
     debates: {},
     questions: [],
     attention: [],
@@ -849,7 +891,7 @@ function emptyState() {
     health: null,
     recoveries: [],
     cursors: {},
-    counters: { task: 0, decision: 0, debate: 0, question: 0 },
+    counters: { task: 0, decision: 0, debate: 0, question: 0, memory: 0 },
   };
 }
 

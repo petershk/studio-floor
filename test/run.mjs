@@ -65,6 +65,7 @@ const STUDIO_TESTS = [
   'scroll-follow.mjs',
   'preview.mjs',
   'attention-withdraw.mjs',
+  'memory.mjs',
   'reassign-notice.mjs',
 ];
 

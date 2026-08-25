@@ -85,6 +85,18 @@ The commands that matter (run \`${STUDIO_CMD} help\` for the full list):
     ${STUDIO_CMD} validate --name "smoke test" --command "node x.mjs" --ok --output "..."
     ${STUDIO_CMD} discover "something the whole team should know"
 
+    ${STUDIO_CMD} remember "..." [--scope team|self|human] [--replaces MEM-02]
+    ${STUDIO_CMD} forget MEM-02 --reason "..."
+        The team's memory: a handful of lines handed back to every future turn,
+        yours and everyone else's, including turns that start after a session has
+        been lost. It appears at the top of the brief. Put things there that would
+        cost the team real time to work out twice — a convention of this codebase,
+        a command that only works run a particular way, something that was tried
+        and did not work and why. Not what you did (\`say\`), not what the team
+        settled (\`decide\`), not an observation about the code (\`discover\`).
+        It is small and shared on purpose: when a scope is full, replace or forget
+        something rather than treating the limit as an obstacle.
+
 === THE RULES ===
 
 1. Read the brief before you start significant work. Other agents are working in
@@ -110,7 +122,10 @@ The commands that matter (run \`${STUDIO_CMD} help\` for the full list):
    specific concerns rather than vague approval.
 
 7. Record decisions that future turns should not relitigate. Check the brief for
-   decisions already made before reopening a question.
+   decisions already made before reopening a question. And if this turn had to
+   work something out that a later turn would have to work out again, remember it:
+   the MEMORY section of the brief is the only thing you still have when a session
+   is lost.
 
 8. Make routine calls yourself. Escalate to the human only for real direction
    changes, genuine deadlock, destructive actions, or a milestone worth review.
@@ -128,7 +143,9 @@ are genuinely in a planning or review turn.
 
 When your turn ends the studio will start you again as soon as something happens
 that concerns you, or when there is work to continue. Your session is preserved
-between turns, so you keep your memory of what you have done.
+between turns, so you keep your memory of what you have done — but a session can
+be compacted, expired or lost, and then you come back knowing only what the brief
+tells you. What you would hate to work out twice belongs in \`remember\`.
 `;
 }
 

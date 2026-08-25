@@ -4,9 +4,12 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import {
   WEB_DIR, PORT, HOST, CONFIG_FILE, PROJECT_ROOT, EXIT_SWITCH, IS_LEGACY_LAYOUT, STATE_DIR, HOME_DIR,
-  HOME_DIR_NAME,
+  HOME_DIR_NAME, STUDIO_CMD,
 } from '../core/paths.mjs';
 import { AGENT_IDS, AGENT_STATES, TASK_STATES, MESSAGE_KINDS } from '../core/events.mjs';
+import {
+  MEMORY_SCOPES, MEMORY_LIMITS, activeMemory, scopeEntries, scopeChars,
+} from '../core/memory.mjs';
 import {
   AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG, WORK_DIR,
 } from '../core/roster.mjs';
@@ -1155,6 +1158,62 @@ export function handleAction(store, body) {
       return { ok: true, seq: ev.seq, id };
     }
 
+    // Remembering. See core/memory.mjs for what this is for and why it is small.
+    //
+    // The budget is enforced here rather than by evicting the oldest entry when a
+    // scope fills up. Eviction would make the write always succeed and sometimes
+    // lose the line the team needed, silently, at the moment it stopped fitting —
+    // and which entry no longer matters is a judgement, not a timestamp. So a full
+    // scope is a refusal that names what could go instead.
+    case 'memory': {
+      const prior = body.replaces ? requireMemory(s, body.replaces) : null;
+      if (prior) requireMemoryWritable(prior, agent);
+      const scope = requireEnum(body.scope || prior?.scope || 'team', MEMORY_SCOPES, 'memory scope');
+      if (prior && prior.scope !== scope) {
+        throw new Error(
+          `${prior.id} is ${prior.scope} memory and this would make it ${scope} memory — `
+          + `those are separate budgets. Forget ${prior.id} and remember a new one instead.`,
+        );
+      }
+      // Collapsed to one line on the way in. Memory is rendered as a bullet in
+      // every brief, and a multi-line entry breaks that rendering for everyone.
+      const text = requireText(body.text, 'text',
+        'memory is injected into every future turn, so an entry that says nothing spends'
+        + ' a line of every agent prompt and tells them none of it').replace(/\s+/g, ' ');
+      if (text.length > MEMORY_LIMITS.entry) {
+        throw new Error(
+          `that entry is ${text.length} characters and the limit is ${MEMORY_LIMITS.entry} — `
+          + 'memory is the working set every turn is handed, not a place to put a document. '
+          + `Shorten it, or record it with \`${STUDIO_CMD} decide\` or \`${STUDIO_CMD} discover\` instead.`,
+        );
+      }
+      const owner = scope === 'self' ? agent : null;
+      const kept = scopeEntries(s, scope, owner).filter((m) => m.id !== prior?.id);
+      const chars = scopeChars(kept) + text.length;
+      if (kept.length + 1 > MEMORY_LIMITS.entries || chars > MEMORY_LIMITS.scope) {
+        throw new Error(
+          `${scope} memory is full — this would make it ${kept.length + 1} entries and ${chars} characters, `
+          + `over the limit of ${MEMORY_LIMITS.entries} entries and ${MEMORY_LIMITS.scope} characters. `
+          + `Forget something first (${kept.slice(0, 3).map((m) => `${m.id} "${clip(m.text, 60)}"`).join(', ')}), `
+          + `with \`${STUDIO_CMD} forget <MEM-id> --reason "..."\`, or pass --replaces to swap one out.`,
+        );
+      }
+      const id = `MEM-${String(++s.counters.memory).padStart(2, '0')}`;
+      const ev = store.append('memory.recorded', agent, {
+        id, scope, owner, text, replaces: prior?.id || null,
+      });
+      return { ok: true, seq: ev.seq, id };
+    }
+
+    case 'memory.forget': {
+      const entry = requireMemory(s, body.id);
+      requireMemoryWritable(entry, agent);
+      const reason = requireText(body.reason, 'reason',
+        'forgetting takes away a line the team chose to keep, and the next reader'
+        + ' needs to know whether it stopped being true or just stopped being worth a slot');
+      return ok(store.append('memory.forgotten', agent, { id: entry.id, reason }));
+    }
+
     case 'debate.open': {
       const id = `DEB-${String(++s.counters.debate).padStart(2, '0')}`;
       const ev = store.append('debate.opened', agent, {
@@ -1579,6 +1638,42 @@ function requireNotAlreadyDecided(s, question, supersedes) {
     `${already.id} has already decided that question — ${show(already.chosen)}.`
     + ` If this replaces it, pass --supersedes ${already.id}. If it is a different question, say so in the question.`,
   );
+}
+
+/** An entry that is still standing. A forgotten one is gone as far as verbs go. */
+function requireMemory(s, id, label = 'memory entry') {
+  const entry = activeMemory(s).find((m) => m.id === id);
+  if (entry) return entry;
+  const known = activeMemory(s).map((m) => m.id);
+  const gone = (s.memory || []).find((m) => m.id === id);
+  if (gone) {
+    throw new Error(
+      `${id} was already forgotten by ${gone.forgottenBy || 'someone'}`
+      + `${gone.forgottenReason ? ` — ${gone.forgottenReason}` : ''}`,
+    );
+  }
+  throw new Error(
+    `no such ${label} ${show(id)}`
+    + (known.length ? ` — memory holds ${known.join(', ')}` : ' — the team has remembered nothing yet'),
+  );
+}
+
+/**
+ * Shared memory is the team's, so any agent may revise it — that is the point of
+ * it being shared. An agent's own notes are not: rewriting what another agent
+ * decided to remember about its own work is putting words in its mouth.
+ */
+function requireMemoryWritable(entry, agent) {
+  if (entry.scope !== 'self' || entry.owner === agent) return entry;
+  throw new Error(
+    `${entry.id} is ${entry.owner}'s own note, not team memory — `
+    + `ask ${entry.owner} to change it, or remember your own version.`,
+  );
+}
+
+function clip(text, n) {
+  const t = String(text ?? '');
+  return t.length > n ? `${t.slice(0, n)}…` : t;
 }
 
 function requireTask(s, id, label = 'task') {

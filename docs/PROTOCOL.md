@@ -42,7 +42,8 @@ studio agent help                       every verb
    specific concerns rather than vague approval.
 
 7. **Record decisions** that future turns should not relitigate. Check the brief
-   before reopening a settled question.
+   before reopening a settled question. And if a turn had to work something out
+   that a later turn would have to work out again, `remember` it — see below.
 
 8. **Make routine calls yourself.** Escalate only for real direction changes,
    genuine deadlock, destructive actions, or a milestone worth review.
@@ -86,6 +87,36 @@ A debate records independent positions, criticism of the alternatives, responses
 to criticism, revised positions, and a recommendation. Actively look for
 weaknesses in proposals, including your own. The goal is a better decision, not
 an argument.
+
+## Memory
+
+```
+studio agent remember "..." [--scope team|self|human] [--replaces MEM-02]
+studio agent forget MEM-02 --reason "..."
+studio agent memory [--scope team|self|human]
+```
+
+A few lines handed back to every future turn, at the top of the brief. It is the
+only thing an agent still has when its session is compacted, expires, or is lost.
+
+Put things there that would cost the team real time to work out twice: a
+convention of this codebase, a command that only works run a particular way,
+something that was tried and did not work and why. Not what you did (`say`), not
+what the team settled (`decide`), not an observation about the code (`discover`).
+
+Three scopes. `team` is the default and is shared, because the failure this
+exists to prevent is every agent learning the same lesson separately. `self` is
+one agent's own notes — still in the shared log, nothing here is hidden from the
+human, but injected only into that agent's brief. `human` is how the human works.
+
+It is deliberately small: 400 characters an entry, and 4000 characters or 24
+entries a scope, with `self` budgeted per agent. A full scope refuses the write
+and names what could go instead rather than evicting the oldest line on your
+behalf — which entry no longer matters is a judgement. Shared memory belongs to
+the team and any agent may revise it; another agent's own notes are theirs.
+
+Forgetting hides an entry from every brief. It does not delete it: the human can
+still see what the team used to believe and who stopped believing it.
 
 ## Escalation
 

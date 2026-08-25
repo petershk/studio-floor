@@ -11,6 +11,7 @@
  */
 import { BASE_URL } from '../core/paths.mjs';
 import { AGENT_IDS } from '../core/events.mjs';
+import { memoryFor, MEMORY_SCOPES } from '../core/memory.mjs';
 
 /** Set on a studio that requires one; the runner passes it to every agent. */
 const TOKEN = process.env.STUDIO_TOKEN || '';
@@ -49,6 +50,13 @@ const HELP = `studio — team channel for the multi-agent studio
   studio debate close <DEB-id> --outcome "..." [--decision DEC-01]
 
   studio decide --question "..." --chosen "..." --why "..." [--alternatives "a|b"] [--arguments "..."] [--participants codex,claude] [--task TASK-01] [--supersedes DEC-01]
+
+  studio remember "text" [--scope team|self|human] [--replaces MEM-03]
+        Keep something for every future turn, including turns after your session
+        is lost. team (default) is for the whole team, self is your own notes,
+        human is how the human works. Small on purpose — say it in one line.
+  studio forget <MEM-id> --reason "..."
+  studio memory [--scope team|self|human]
 
   studio attention --kind decision|blocked|conflict|review --text "..." [--options "a|b"] [--ref TASK-01]
   studio withdraw <ATT-id> --reason "..."   take back an attention item you raised that went stale
@@ -154,6 +162,25 @@ async function main() {
         relatedTask: flags.task,
         supersedes: flags.supersedes,
       }));
+
+    // Memory is the one thing here that outlives a vendor session. Everything
+    // else an agent knows about its own past turns lives inside that session and
+    // goes when the session is compacted, expired or lost.
+    case 'remember':
+      return void report(await act('memory', {
+        text: positional.join(' ') || flags.text,
+        scope: flags.scope,
+        replaces: flags.replaces,
+      }));
+
+    case 'forget':
+      return void report(await act('memory.forget', {
+        id: flags.id || positional[0],
+        reason: flags.reason || positional.slice(1).join(' '),
+      }));
+
+    case 'memory':
+      return void console.log(await memory(flags));
 
     case 'attention':
       return void report(await act('attention', {
@@ -278,6 +305,19 @@ async function brief() {
     L.push(`${mark} ${pad(a.id, 7)} ${pad(a.state, 17)} ${a.currentTask ? `on ${a.currentTask}` : ''} ${a.paused ? '[paused]' : ''} ${a.strengths?.length ? `— ${a.strengths.join(', ')}` : ''}`);
   }
 
+  // Directly under the roster and above the work, because it is the part of the
+  // brief that stays true regardless of what happened this week — and because a
+  // long brief is clipped from the tail, and this must not be what goes.
+  //
+  // What you read here is what you were handed at the start of this turn. A
+  // `remember` you run now lands on disk immediately and appears in your next
+  // brief, so the prompt a turn is running against never changes underneath it.
+  const mem = memoryFor(s, AGENT);
+  if (mem.length) {
+    L.push('\nMEMORY — kept deliberately, and revisable with `studio remember` / `studio forget`');
+    for (const m of mem) L.push(`  ${m.id} [${m.scope === 'self' ? 'yours' : m.scope}] ${m.text}`);
+  }
+
   const open = Object.values(s.tasks).filter((t) => !['completed', 'rejected'].includes(t.state));
   L.push(`\nTASKS (${open.length} open, ${Object.keys(s.tasks).length} total)`);
   for (const t of open) L.push(`  ${renderTask(t)}`);
@@ -340,6 +380,37 @@ async function tasks(f) {
   if (f.owner) list = list.filter((t) => t.owner === f.owner);
   if (f.mine) list = list.filter((t) => t.owner === AGENT);
   return list.length ? list.map((t) => renderTask(t)).join('\n') : '(no tasks match)';
+}
+
+/**
+ * The whole of memory, including other agents' own notes and the entries that
+ * have been forgotten. The brief deliberately shows neither — this is where an
+ * agent looks when it wants to know what the team used to think, or why a note
+ * it half-remembers is no longer there.
+ */
+async function memory(f) {
+  const s = await get('/api/state');
+  const scope = f.scope && f.scope !== true ? String(f.scope) : null;
+  if (scope && !MEMORY_SCOPES.includes(scope)) {
+    throw new Error(`unknown scope ${scope} — expected one of ${MEMORY_SCOPES.join(', ')}`);
+  }
+  const all = (s.memory || []).filter((m) => !scope || m.scope === scope);
+  if (!all.length) return scope ? `(nothing remembered in ${scope})` : '(the team has remembered nothing yet)';
+  const L = [];
+  for (const m of all.filter((x) => !x.forgotten)) {
+    const where = m.scope === 'self' ? `self:${m.owner}${m.owner === AGENT ? ' (you)' : ''}` : m.scope;
+    L.push(`${m.id} [${where}] ${m.text}`);
+    L.push(`     remembered by ${m.by} at ${short(m.ts)}${m.replaces ? `, replacing ${m.replaces}` : ''}`);
+  }
+  const gone = all.filter((x) => x.forgotten);
+  if (gone.length) {
+    L.push('', 'forgotten:');
+    for (const m of gone) {
+      L.push(`  ${m.id} [${m.scope}] ${m.text}`);
+      L.push(`     forgotten by ${m.forgottenBy} — ${m.forgottenReason}`);
+    }
+  }
+  return L.join('\n');
 }
 
 function renderTask(t, full = false) {

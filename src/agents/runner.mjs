@@ -8,6 +8,7 @@ import { resolveLaunch } from './launch.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
 import { resolveAuth } from '../core/auth.mjs';
 import { briefState } from '../core/projects.mjs';
+import { memoryFor } from '../core/memory.mjs';
 
 /**
  * The runner's own settings, flattened out of the config so the rest of this
@@ -891,6 +892,9 @@ const BRIEF_LIMITS = {
   discoveries: 6,
   question: 160,
   attention: 220,
+  // Entries are already capped at the door (core/memory.mjs), so this only ever
+  // clips something written before that cap existed. Kept in step with it.
+  memory: 400,
   total: 12_000,     // the brief as a whole
 };
 
@@ -907,6 +911,16 @@ function renderBrief(agentId, s) {
   L.push('Agents:');
   for (const a of Object.values(s.agents)) {
     L.push(`  ${a.id}${a.id === agentId ? ' (you)' : ''}: ${a.state}${a.currentTask ? ` on ${a.currentTask}` : ''}${a.strengths?.length ? ` — ${a.strengths.join(', ')}` : ''}`);
+  }
+  // Above the work and below the roster: this is the part of the brief that is
+  // still true after a session is lost, so it must survive the tail truncation
+  // that a long brief gets.
+  const mem = memoryFor(s, agentId);
+  if (mem.length) {
+    L.push('Memory (kept deliberately — revise it rather than working around it):');
+    for (const m of mem) {
+      L.push(`  ${m.id} [${m.scope === 'self' ? 'yours' : m.scope}] ${clipText(m.text, BRIEF_LIMITS.memory)}`);
+    }
   }
   const tasks = Object.values(s.tasks);
   L.push(`Tasks: ${tasks.length ? '' : '(none yet — the team has not divided the work)'}`);

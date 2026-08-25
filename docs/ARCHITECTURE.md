@@ -56,6 +56,7 @@ refuses to start — that is corruption, not a crash, and guessing would be wors
 | `message.*` | observable agent-to-agent communication |
 | `task.*` | explicit units of work |
 | `decision.*` | durable project knowledge |
+| `memory.*` | the small durable working set handed to every turn |
 | `debate.*` | structured disagreement |
 | `attention.*` | things that genuinely want the human |
 | `work.*` | files touched, validation runs, discoveries |
@@ -128,9 +129,16 @@ a turn reasoning about it.
 
 ## The brief
 
-Every turn's prompt embeds a rendered snapshot of shared state: roster, tasks,
-decisions already made, open debates, unresolved questions, what is waiting on
-the human, recent discoveries, and recent conversation.
+Every turn's prompt embeds a rendered snapshot of shared state: roster, memory,
+tasks, decisions already made, open debates, unresolved questions, what is
+waiting on the human, recent discoveries, and recent conversation.
+
+Memory sits near the head deliberately. Truncation takes the tail, and memory is
+the one section that is still true after a vendor session is lost — the section
+whose whole purpose is to survive an agent that has forgotten everything else.
+Rendering it once per turn is also what freezes it: an entry written mid-turn
+lands on disk immediately and appears in the next turn's prompt, so the prompt a
+turn is running against never changes underneath it.
 
 Every unbounded section of it is capped (`BRIEF_LIMITS` in `runner.mjs`). They
 were all uncapped once; the brief grew with the studio's history until the
