@@ -81,6 +81,7 @@ export class Runner {
         sessionId: null,
         turn: 0,
         quietTurns: 0,
+        turnFailures: 0,
         idleLevel: 0,
         wakeReason: null,
         waiter: null,
@@ -578,17 +579,49 @@ export class Runner {
     }
     a.launchFailures = 0;
 
+    if (exit.code === 0) a.turnFailures = 0;
+
+    // A turn that keeps failing is the same problem as a launch that keeps
+    // failing, and it had none of the same protection.
+    //
+    // codex ran 42 consecutive failed turns in seven minutes against a thread its
+    // own store had locked, redelivering the same 20 inbox items each time, and
+    // nothing stopped it or told anyone. quietTurns cannot: a failed turn appends
+    // an agent.state and a studio.note owned by that agent, so `produced` is not
+    // zero and the streak resets on every failure. The one mechanism that could
+    // have slept it is structurally blind to failure — it only sees silence.
     if (exit.code !== 0 && !a.stopping) {
+      a.turnFailures = (a.turnFailures || 0) + 1;
       this.store.append('agent.state', a.id, {
         state: 'error',
         note: `turn ${a.turn} exited with code ${exit.code}`,
       });
       // A failed resume usually means the session is gone; start a fresh one.
-      if (exit.sessionProblem) {
-        this.store.append('studio.note', a.id, { text: 'session could not be resumed — starting a fresh session' });
+      // The second failure does it whether or not the stderr was recognised: a
+      // session is cheap and a loop is not, and the thing that went wrong above
+      // was trusting a string match to notice.
+      if (exit.sessionProblem || a.turnFailures === 2) {
+        this.store.append('studio.note', a.id, {
+          text: exit.sessionProblem
+            ? 'session could not be resumed — starting a fresh session'
+            : 'two turns in a row failed — starting a fresh session in case the old one cannot be resumed',
+        });
         a.sessionId = adapter.newSession ? adapter.newSession() : null;
       }
-      await sleep(5000);
+      if (a.turnFailures >= TURN_FAILURE_LIMIT) {
+        this.store.append('attention.raised', a.id, {
+          kind: 'blocked',
+          text: `${a.id} has failed ${a.turnFailures} turns in a row and is stopped. `
+            + `The last exit was code ${exit.code}. Retrying has not helped and the rest of the team `
+            + 'is still running — look at the raw feed for this agent, then start it again from the studio.',
+        });
+        await this.stop(a.id, `${a.turnFailures} turns in a row failed`);
+        return;
+      }
+      // Back off further each time rather than hammering at a fixed interval.
+      // Defaults to 5s; the suite sets it to 0 so a breaker test is not 30s long.
+      const base = this.config.failureBackoffMs ?? 5000;
+      await sleep(Math.min(60_000, base * a.turnFailures));
     }
 
     if (a.quietTurns >= 3) {
@@ -770,7 +803,15 @@ export class Runner {
           const line = raw.trim();
           if (!line) continue;
           transcript.write(`${JSON.stringify({ stderr: line })}\n`);
-          if (/no session|session not found|unknown session|could not resume/i.test(line)) sessionProblem = true;
+          // Every alternative here is one vendor's wording, which is a guess, and
+          // a wrong guess is silent. codex says "thread/resume failed: thread <id>
+          // already has an active writer" and "thread-store conflict" — neither of
+          // which contains any of the first four — so the studio resumed the same
+          // locked thread 42 times in seven minutes and recovered from none of it.
+          // The turn-failure breaker below is the backstop that does not depend on
+          // recognising anyone's prose; this list is the fast path, not the guard.
+          if (/no session|session not found|unknown session|could not resume|resume failed|already has an active writer|thread-store conflict/i
+            .test(line)) sessionProblem = true;
           if (/error|fatal|panic|unauthori[sz]ed|not logged in/i.test(line)) {
             this.store.append('raw.error', a.id, { text: line.slice(0, 2000), stream: 'stderr' });
           } else {
@@ -978,6 +1019,17 @@ function renderBrief(agentId, s) {
  * agent silently fails to launch is not.
  */
 const COMMAND_LINE_BUDGET = 28_000;
+
+/**
+ * Consecutive failed turns before an agent is stopped and the human is told.
+ *
+ * Deliberately close to the three strikes a failing launch gets. A turn failure
+ * is likelier to be transient than a missing binary, so it is one higher — but
+ * only one. The alternative on the day this was written was 42 failures in seven
+ * minutes with no event saying so, and an eager breaker that raises attention is
+ * cheaper to recover from than a loop nobody is told about.
+ */
+const TURN_FAILURE_LIMIT = 4;
 
 function buildLaunchableArgs(store, agentId, adapter, params, outcome = {}, budget = COMMAND_LINE_BUDGET) {
   outcome.shortened = false;
