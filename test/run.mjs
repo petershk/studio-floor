@@ -117,10 +117,26 @@ const STUDIO_SOURCES = [
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
 
+/**
+ * Line endings are normalised before hashing, and that is the difference between
+ * this digest meaning something and meaning nothing.
+ *
+ * .gitattributes stores every file with LF, but a Windows working tree can hold
+ * CRLF for files checked out before that rule, or by a tool that rewrote them.
+ * So the same commit hashed differently depending on the checkout: this repo
+ * reported 63F1AB842ADF while a fresh clone of the identical commit reported
+ * 887EC27FC298, and the files that differed were exactly the CRLF ones.
+ *
+ * A digest that changes with the checkout inverts the whole point of quoting it.
+ * It exists so two agents can tell instantly that they ran different code; left
+ * alone it tells them that whenever they are on different platforms, which is
+ * the false alarm most likely to be believed.
+ */
 const hash = (file) => {
   const p = path.join(ROOT, file);
   if (!existsSync(p)) return null;
-  return createHash('sha256').update(readFileSync(p)).digest('hex').slice(0, 12).toUpperCase();
+  const text = readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12).toUpperCase();
 };
 
 function run(command, cmdArgs, cwd = ROOT) {

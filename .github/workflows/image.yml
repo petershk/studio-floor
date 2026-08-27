@@ -59,12 +59,20 @@ jobs:
             type=semver,pattern={{major}}
             type=ref,event=pr
 
-      - name: Build and push
+      # Built before it is pushed, and pushed only after it has answered.
+      #
+      # These two steps were one, and it ran before the proof: every image since
+      # August reached the registry unverified, and the run that published it was
+      # then marked failed by a probe nobody could act on. Building into the local
+      # daemon first costs nothing — the push below reuses these exact layers from
+      # the cache — and it means the thing that ships is the thing that answered.
+      - name: Build the image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          push: false
+          load: true
+          tags: studio-floor:test
           labels: ${{ steps.meta.outputs.labels }}
           # linux/amd64 only, deliberately. The image installs the vendor CLIs
           # from npm, and an arm64 build of one that does not exist fails at run
@@ -78,11 +86,17 @@ jobs:
         # Building is not the same as working: the first version of the compose
         # file built perfectly and could not start. This boots the server with
         # no agents and asks it whether it is alive.
+        #
+        # STUDIO_HOST is deliberately NOT set here. The Dockerfile sets 0.0.0.0
+        # because a server bound to the container's own loopback is reachable
+        # from nothing outside it — which is exactly what this step used to do to
+        # itself, then report as "the studio never answered". Publishing the port
+        # is what keeps it private to the runner; the bind address inside the
+        # container is not the control that does it.
         run: |
           set -e
-          docker build -t studio-floor:test .
           docker run -d --name probe -e STUDIO_TOKEN=probe-token \
-            -e STUDIO_HOST=127.0.0.1 -p 127.0.0.1:4173:4173 studio-floor:test start --no-agents --no-open
+            -p 127.0.0.1:4173:4173 studio-floor:test start --no-agents --no-open
           for i in $(seq 1 30); do
             if curl -fsS -H "Authorization: Bearer probe-token" http://127.0.0.1:4173/api/state >/dev/null; then
               echo "the studio answered"
@@ -96,3 +110,15 @@ jobs:
           docker logs probe
           docker rm -f probe
           exit 1
+
+      # Same context, same cache, so this is a tag-and-push of the layers the
+      # step above just proved rather than a second build of something else.
+      - name: Push the proven image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=gha
