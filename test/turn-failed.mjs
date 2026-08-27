@@ -160,7 +160,16 @@ const produced = store.events.filter(
 check('a failed turn is not silent, which is why the idle detector never fires',
   produced > 0, `${produced} non-raw events from an agent that did nothing but fail`);
 
-fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+// Retried AND caught, like launch-failed.mjs — the other test that drives a real
+// Runner. Eight turns leave eight transcript files, and on Windows a handle can
+// outlive stopAll long enough for rmdir to return ENOTEMPTY; node 22 retries
+// internally and Linux does not care, so it lands on exactly one leg of the
+// matrix. It did, twice: windows-latest / node 20, with every check passing and
+// the run failing in teardown. A temp directory left in the OS temp dir is not a
+// test result, and reporting it as one buries the ones that are.
+try {
+  fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+} catch { /* leftover tmp — the assertions above already ran */ }
 console.log('');
 console.log(failures ? `${failures} FAILED` : 'turn-failed ok');
 process.exitCode = failures ? 1 : 0;
