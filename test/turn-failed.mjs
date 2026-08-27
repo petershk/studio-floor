@@ -95,9 +95,15 @@ const runner = new Runner(store, {
   ],
 });
 
-const deadline = Date.now() + 30_000;
+// Eight process spawns across two agents, and a cold Windows runner is far
+// slower at that than a developer machine: at 30s this timed out on
+// windows/node20 only, and every assertion below then measured a run that had
+// been cut off rather than one that had finished. The deadline is a backstop for
+// a hang, not a pace to keep up with, so it is generous and it says plainly when
+// it fires instead of leaving the count checks to imply it.
+const deadline = Date.now() + 180_000;
+const stopped = new Set();
 await new Promise((resolve) => {
-  const stopped = new Set();
   store.on('event', (ev) => {
     if (ev.kind === 'agent.stopped' && /turns in a row failed/.test(ev.data?.reason || '')) {
       stopped.add(ev.agent);
@@ -113,6 +119,8 @@ await new Promise((resolve) => {
     }
   }, 50);
 });
+check('both agents reached the breaker before the deadline', stopped.size === 2,
+  `stopped: ${[...stopped].join(', ') || 'neither'} — everything below measures a run that was cut short`);
 await runner.stopAll('test finished');
 
 const of = (agent, kind) => store.events.filter((e) => e.kind === kind && e.agent === agent);

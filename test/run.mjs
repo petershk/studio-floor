@@ -159,7 +159,18 @@ for (const name of STUDIO_TESTS) {
   results.push({ file: rel, hash: hash(rel), code });
   say(`  ${code === 0 ? 'ok  ' : 'FAIL'}  ${name.padEnd(30)} ${hash(rel)}`);
   if (code !== 0) {
-    say(out.split('\n').filter((l) => /FAIL|Error|Assertion/i.test(l)).slice(0, 6).map((l) => `        ${l}`).join('\n'));
+    // Anchored on the marker, not on the word.
+    //
+    // This matched /FAIL/i anywhere in the line, and a suite about failure
+    // handling writes check names like "an unrecognised failure still gets a
+    // fresh session". Those pass, they match, and six of them filled the whole
+    // budget — so a windows-only CI failure reported five ok lines and none of
+    // the failing ones. A diagnostic that hides the diagnosis is worse than no
+    // diagnostic, because it is read as the answer.
+    const lines = out.split('\n');
+    const marked = lines.filter((l) => /^\s*(FAIL\b|✗)/.test(l) || /^\s*(Error|Assertion)/i.test(l));
+    const shown = marked.length ? marked : lines.filter((l) => /Error|Assertion/i.test(l));
+    say((shown.length ? shown : lines.slice(-6)).slice(0, 8).map((l) => `        ${l}`).join('\n'));
   }
 }
 
