@@ -18,8 +18,9 @@ src/
   cli/
     studio.mjs     the channel agents speak through
   bin/
-    start.mjs      the launcher
+    serve.mjs      one studio: the log, the server and the agents, bound to one project
     supervise.mjs  restarts the studio after a switch, an update or a crash
+    rehearse-restart.mjs  would a restart work? replays a copy of the live log, read-only
   web/             what the human watches, including the settings panel
   index.mjs        the programmatic entry point
 ```

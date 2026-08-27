@@ -187,6 +187,28 @@ check(`all ${EXPECTED_BLOCKS} documented code blocks were found`,
   extracted === EXPECTED_BLOCKS,
   `extracted ${extracted} — a section heading or fence moved`);
 
+// The README also states, in prose rather than a fence, how many files the
+// suite runs. That number was 20 while the suite ran 38 — nobody proofreads a
+// comment in a code block. The count is not free-standing prose: it is a claim
+// about test/run.mjs's STUDIO_TESTS list, so read the list and hold the README
+// to it. Counted from source rather than imported because run.mjs runs the
+// whole suite on import.
+const RUNNER = fs.readFileSync(path.resolve(here, 'run.mjs'), 'utf8').replace(/\r\n/g, '\n');
+const suiteList = RUNNER.match(/const STUDIO_TESTS = \[([\s\S]*?)\n\];/);
+check('test/run.mjs still declares STUDIO_TESTS', Boolean(suiteList),
+  'the suite list was renamed or reshaped — this check can no longer see it');
+if (suiteList) {
+  const suiteCount = (suiteList[1].match(/'[^']+\.mjs'/g) || []).length;
+  const claimed = README.match(/npm test\s+# (\d+) files/);
+  check('the README states the suite size', Boolean(claimed),
+    'the Tests section no longer says "npm test  # N files"');
+  if (claimed) {
+    check(`the README's file count matches the suite`,
+      Number(claimed[1]) === suiteCount,
+      `README says ${claimed[1]} files, test/run.mjs runs ${suiteCount}`);
+  }
+}
+
 fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 console.log(failures ? `\n${failures} README example check(s) failed\n` : '\nall README examples work\n');
 process.exit(failures ? 1 : 0);

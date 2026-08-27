@@ -1,6 +1,6 @@
 // Would a restart work? Rehearse it against a COPY of the live log.
 //
-// A studio's whole world is rebuilt by replaying `.studio/events.jsonl` on
+// A studio's whole world is rebuilt by replaying `studio_floor/state/events.jsonl` on
 // start. That replay is the thing you least want to discover is broken at the
 // moment you need to restart. This copies the live log to a temp root, boots a
 // store against the copy, and reports what happened — read-only, never touching
