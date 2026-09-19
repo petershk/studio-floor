@@ -103,7 +103,10 @@ export function resolveAuth(record, adapter, { env = process.env } = {}) {
         mode: 'key',
         source: 'environment',
         keyVar,
-        env: {},
+        // Carried explicitly. An agent's process no longer inherits the
+        // studio's environment (see agents/child-env.mjs), so a key that only
+        // lived there would never reach the CLI that needs it.
+        env: { [keyVar]: fromEnv },
         unset: [],
         ok: true,
         // Naming the variable is the point here and nowhere else: it says where
@@ -130,7 +133,7 @@ export function resolveAuth(record, adapter, { env = process.env } = {}) {
   // auto — what every agent did before any of this existed.
   if (fromEnv) {
     return {
-      mode: 'auto', source: 'environment', keyVar, env: {}, unset: [], ok: true, detail: `a key from ${keyVar} in the environment`,
+      mode: 'auto', source: 'environment', keyVar, env: { [keyVar]: fromEnv }, unset: [], ok: true, detail: `a key from ${keyVar} in the environment`,
     };
   }
   if (stored) {

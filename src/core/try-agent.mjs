@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { resolveLaunch } from '../agents/launch.mjs';
 import { getAdapter } from '../agents/adapters/index.mjs';
 import { resolveAuth } from './auth.mjs';
+import { agentEnv } from '../agents/child-env.mjs';
 import { WORK_DIR, AGENTS_READY } from './roster.mjs';
 
 /**
@@ -50,13 +51,18 @@ export function tryAgent(record, { timeoutMs = 90_000, env = process.env } = {})
     return Promise.resolve({ ok: false, stage: 'config', error: e.message });
   }
 
-  const childEnv = {
-    ...env,
-    ...(adapter.env ? adapter.env(record) || {} : {}),
-    ...auth.env,
-    ...(record.options?.env || {}),
-  };
-  for (const name of auth.unset) delete childEnv[name];
+  // The same withholding the runner does: this spawns the same CLI the same
+  // way, and a check that ran with more than a turn does is a check of
+  // something else.
+  const childEnv = agentEnv({
+    base: env,
+    secrets: {
+      ...(adapter.env ? adapter.env(record) || {} : {}),
+      ...auth.env,
+    },
+    extra: record.options?.env || {},
+    unset: auth.unset,
+  });
 
   // Checking a login is a legitimate thing to do before a work directory is
   // chosen, so it is allowed — in an empty scratch directory rather than one

@@ -119,7 +119,7 @@ Order matters — it is the order in the UI and the order agents are started in.
 | `model` | passed to the provider. Empty means the CLI's default. |
 | `command` | override the executable — a wrapper script, or a pinned version. |
 | `extraArgs` | extra CLI arguments, appended verbatim. |
-| `env` | extra environment variables for that agent's process. |
+| `env` | extra environment variables for that agent's process. Agents inherit only what a CLI needs to run, so this is how you add anything else. |
 
 Provider-specific:
 

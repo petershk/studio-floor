@@ -136,7 +136,11 @@ check('and it names where that login lives', auto.detail.includes('claude /login
 
 const inherited = resolveAuth(agent('claude'), claude, { env: { ANTHROPIC_API_KEY: 'sk-env' } });
 check('a key in the environment is found and named', inherited.source === 'environment' && inherited.detail.includes('ANTHROPIC_API_KEY'));
-check('and is not re-injected, since it is already there', Object.keys(inherited.env).length === 0);
+// It used to be enough that the key was "already there": an agent inherited the
+// studio's whole environment. It no longer does (agents/child-env.mjs), so the
+// one agent entitled to this key is handed it, by name, and nobody else is.
+check('and is carried explicitly to the agent it belongs to',
+  inherited.env.ANTHROPIC_API_KEY === 'sk-env', JSON.stringify(inherited.env));
 
 process.env.STUDIO_SECRET_KEY = 'a-passphrase-of-some-length';
 const { SECRETS_FILE } = await import('../src/core/paths.mjs');
@@ -152,7 +156,8 @@ check('a key stored in the studio is injected into the variable the CLI reads',
 const both = resolveAuth(agent('claude'), claude, {
   env: { STUDIO_SECRET_KEY: process.env.STUDIO_SECRET_KEY, ANTHROPIC_API_KEY: 'sk-env' },
 });
-check('the environment beats the studio store', both.source === 'environment' && !both.env.ANTHROPIC_API_KEY);
+check('the environment beats the studio store',
+  both.source === 'environment' && both.env.ANTHROPIC_API_KEY === 'sk-env');
 
 console.log('\n when the mode is a choice rather than a description');
 

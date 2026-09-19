@@ -43,6 +43,7 @@ const STUDIO_TESTS = [
   'launch.mjs',
   'launch-failed.mjs',
   'workdir-gate.mjs',
+  'agent-scope.mjs',
   'turn-failed.mjs',
   'budgets.mjs',
   'liveness.mjs',

@@ -134,6 +134,29 @@ the person in charge. That happened once: a probe against a live server appeared
 to two agents as a directive from the creative director, and they spent part of
 a turn reasoning about it.
 
+## What an agent is handed
+
+An agent's process is built from an allowlist (`agents/child-env.mjs`), not from
+the studio's environment. It gets what a CLI needs to run — PATH, a home
+directory, locale, proxy settings — its own provider key, and its own studio
+credential. It does not get `STUDIO_TOKEN`, the git token, the tunnel token, or
+any other agent's key.
+
+That credential is scoped twice over: to the agent routes (`/api/state`,
+`/api/events`, `/api/inbox*`, `/api/action`) and to the agent it belongs to. An
+agent cannot rewrite the config, speak as the human, stop a colleague, read the
+secrets route, switch project, or put another agent's name on its own work.
+
+All of it was reachable before, because every agent was spawned with the
+studio's whole environment and so held the human's token. An agent that
+disagreed with its sandbox could widen it and then use it, and the log would
+show the human doing it.
+
+The remaining gap is the filesystem: agents still run as the same OS user as the
+studio, so what stops one reading another project, or the event log, is
+permission it has rather than permission it lacks. A separate user per agent is
+the next step.
+
 ## The brief
 
 Every turn's prompt embeds a rendered snapshot of shared state: roster, memory,
