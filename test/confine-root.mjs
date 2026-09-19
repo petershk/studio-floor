@@ -71,7 +71,9 @@ try {
   });
   check('a real root studio can confine', verdict.confined && verdict.ready, verdict.why || verdict.held);
 
-  const applied = applyConfinement(confinementPlan({ user: verdict.user, workDir, stateDir, configFile }));
+  const applied = applyConfinement(confinementPlan({
+    user: verdict.user, workDir, stateDir, configFile, homeDir: path.join(project, 'studio_floor'),
+  }));
   check('the plan applies cleanly', applied.ok, applied.error);
 
   // What the agent's own process can do, run exactly as the runner runs it.
