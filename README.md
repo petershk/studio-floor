@@ -255,11 +255,14 @@ The defaults let agents edit their project directory and run commands without
 asking. That is what makes them team members rather than assistants. It also
 means several agents are running commands on your machine with your credentials.
 
-Agents run in their work directory and are told it is the only one they may
-look at. What that can enforce varies: the CLIs' own sandboxes keep *writes*
-inside it, but a shell command can still *read* any file your user can. If
-reads must be contained, run the studio in its container (see
-[docs/CLOUD.md](docs/CLOUD.md)), where only the workspace is mounted.
+Agents run in their work directory, and where the studio can it makes that a
+real boundary rather than an instruction: each turn runs as its own
+unprivileged user, which owns the work directory and cannot read the event log,
+the config, the stored keys or any other project. That needs root on a POSIX
+host — the container has it — so a studio that is **shared** (a token set, or
+bound off loopback) will not start agents until it can confine them, while a
+private loopback studio runs unconfined and says so. See `security` in
+[docs/CONFIG.md](docs/CONFIG.md).
 
 To watch before trusting it, start read-only:
 
@@ -276,7 +279,7 @@ every file on disk untouched.
 ## Tests
 
 ```bash
-npm test                        # 41 files, offline, free, ~30s
+npm test                        # 42 files, offline, free, ~30s
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```

@@ -249,7 +249,9 @@ async function clone() {
 
 async function doctor() {
   const { spawnSync } = await import('node:child_process');
-  const { CONFIG, AGENTS, WORK_DIR, AGENTS_READY } = await load(SRC, 'core', 'roster.mjs');
+  const {
+    CONFIG, AGENTS, WORK_DIR, AGENTS_READY, CONFINEMENT,
+  } = await load(SRC, 'core', 'roster.mjs');
   const { getAdapter, loadUserAdapters, providers } = await load(SRC, 'agents', 'adapters', 'index.mjs');
   const { resolveLaunch } = await load(SRC, 'agents', 'launch.mjs');
   const { resolveAuth } = await load(SRC, 'core', 'auth.mjs');
@@ -296,10 +298,18 @@ async function doctor() {
   }
 
   console.log(`  work dir   ${AGENTS_READY.ready ? WORK_DIR.path : '(not set)'}`);
+  console.log(`  agents run ${CONFINEMENT.confined ? `as ${CONFINEMENT.user.name}` : 'as this user (unconfined)'}`);
   console.log(`  providers  ${providers().join(', ')}\n`);
 
   if (AGENTS_READY.ready) ok(`work directory ${WORK_DIR.path}`);
   else fail(`agents will stay idle: ${AGENTS_READY.reason}`, 'workdir');
+
+  // Confinement is reported whether or not it holds the team: an unconfined
+  // laptop studio is a normal, working studio, and saying nothing about it
+  // would leave the operator to assume a boundary that is not there.
+  if (CONFINEMENT.confined) ok(`agents confined — ${CONFINEMENT.why}`);
+  else if (CONFINEMENT.required) fail(`agents will stay idle: ${CONFINEMENT.held}`, 'workdir');
+  else console.log(`  note   ${CONFINEMENT.why}`);
 
   let inferredBrief = false;
   if (!fs.existsSync(brief)) {

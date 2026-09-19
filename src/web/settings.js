@@ -293,6 +293,9 @@ function projectBlock() {
         <div class="mono">${wd && !wd.ready ? '<b>nothing yet</b>' : esc(wd?.path || cur.path)}</div>
         ${wd && !wd.ready ? `<div class="set-warn">
           Agents stay idle: ${esc(wd.held)}.</div>` : ''}
+        ${wd && wd.ready ? `<div class="muted">${wd.confined
+    ? `enforced by the system — ${esc(wd.confinement)}`
+    : `<b>not enforced</b> — ${esc(wd.confinement)}`}</div>` : ''}
         <div class="muted">
           ${wd && !wd.ready ? '' : wd?.scoped
     ? `the only directory the agents can write in — inside <span class="mono">${esc(cur.path)}</span>`

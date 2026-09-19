@@ -152,10 +152,21 @@ studio's whole environment and so held the human's token. An agent that
 disagreed with its sandbox could widen it and then use it, and the log would
 show the human doing it.
 
-The remaining gap is the filesystem: agents still run as the same OS user as the
-studio, so what stops one reading another project, or the event log, is
-permission it has rather than permission it lacks. A separate user per agent is
-the next step.
+The filesystem is the other half, and `core/confine.mjs` is where it lives. Agent
+turns run as their own unprivileged user: the work directory is owned by that
+user, and the event log, the config, the stored keys and every other project are
+not readable by it. What stops an agent reading the studio's memory is then a
+permission it lacks rather than an instruction it was given.
+
+That needs root on a POSIX host, which the container has and a laptop does not.
+So `security.confineAgents: auto` confines wherever it can, and *requires* it
+once the studio is shared — a token set, or bound off loopback. A shared studio
+that cannot confine holds its agents exactly as an unset work directory does.
+`off` is an operator saying out loud that agents may read whatever the studio
+can, which is what keeps `npm start` on a laptop working.
+
+Applying the plan stops at the first failure, because a half-applied plan is a
+studio that believes it is confined and is not.
 
 ## The brief
 

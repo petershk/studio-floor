@@ -13,6 +13,7 @@ import {
 import { DEBATE_ROUNDS, atRoundLimit, positionLimit } from '../core/debate.mjs';
 import {
   AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG, WORK_DIR, AGENTS_READY,
+  CONFINEMENT,
 } from '../core/roster.mjs';
 import { providers, getAdapter } from '../agents/adapters/index.mjs';
 import {
@@ -248,6 +249,12 @@ export function createHttpServer(store, runner) {
             set: WORK_DIR.set,
             ready: AGENTS_READY.ready,
             held: AGENTS_READY.reason,
+            // Whether that directory is a wall or a request. The panel says
+            // which, because "the agents can only write here" is a different
+            // promise depending on the answer.
+            confined: CONFINEMENT.confined,
+            confinement: CONFINEMENT.why,
+            confineUser: CONFINEMENT.user?.name || '',
           },
           building: (() => {
             const pv = resolvePreview(SERVER_CONFIG.preview);

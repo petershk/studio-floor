@@ -21,6 +21,13 @@ RUN npm install -g \
       @openai/codex@${CODEX_VERSION} \
  && npm cache clean --force
 
+# The account agent turns run as. The studio itself stays root, because only
+# root may drop to another user; the agents never are. Its home is where each
+# CLI keeps its own login, which is why it is a real home directory and why
+# `docker compose exec -u studio-agent studio claude /login` is the way to sign
+# one in — a login made as root lands somewhere the agents cannot read.
+RUN useradd --create-home --shell /bin/bash studio-agent
+
 WORKDIR /opt/studio-floor
 COPY package.json ./
 COPY bin ./bin

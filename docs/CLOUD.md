@@ -161,6 +161,13 @@ separate budgets:
 `apiKey` — the literal key in the config file — is refused over HTTP for this
 reason, and `studio_floor/config.json` is a file worth committing.
 
+Agent turns run as `studio-agent`, not as the studio. Sign a CLI in as that
+user or the agents will not find the login:
+
+```bash
+docker compose exec -u studio-agent studio claude /login
+```
+
 Keys are handed to the agent they belong to and to nobody else: an agent's
 process no longer inherits the studio's environment, so one agent cannot spend
 another's budget, read `STUDIO_GIT_TOKEN`, or use the API token you log in with.
