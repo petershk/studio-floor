@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { PROJECT_ROOT, STATE_DIR, CONFIG_FILE, PACKAGE_ROOT } from './paths.mjs';
+import {
+  PROJECT_ROOT, STATE_DIR, CONFIG_FILE, PACKAGE_ROOT, HOME_DIR,
+} from './paths.mjs';
 
 /**
  * Making "agents work only in their directory" true rather than instructed.
@@ -158,10 +160,22 @@ export function confinement({
  * the agent reach its own directory through a workspace it cannot list, so
  * sibling repositories stay invisible.
  */
-export function confinementPlan({ user, workDir, stateDir = STATE_DIR, configFile = CONFIG_FILE } = {}) {
+export function confinementPlan({
+  user, workDir, stateDir = STATE_DIR, configFile = CONFIG_FILE, homeDir = HOME_DIR,
+} = {}) {
   if (!user) return [];
+  // The studio's own belongings, which sit *inside* the project and therefore
+  // usually inside the work directory: `workDir: "."` is the common case. The
+  // ownership walk must step around them, or handing the work directory to the
+  // agent would hand it the event log too — and sealing the mode afterwards
+  // would seal a file the agent owns, which it can simply unseal.
+  const mine = [homeDir, stateDir, configFile].filter(Boolean).map((p) => path.resolve(p));
   const plan = [
-    { action: 'own', target: workDir, uid: user.uid, gid: user.gid, why: 'the agents write here' },
+    { action: 'own', target: workDir, uid: user.uid, gid: user.gid, exclude: mine, why: 'the agents write here' },
+    // Sealed as a whole, not only its contents: listing studio_floor/ shows an
+    // agent where the log, the keys and the config live. A real run of
+    // test/confine-root.mjs caught exactly that.
+    { action: 'seal', target: homeDir, mode: 0o700, why: 'the studio\'s own folder is not an agent\'s to read' },
     { action: 'seal', target: stateDir, mode: 0o700, why: 'the event log is the studio\'s memory, not an agent\'s file' },
     { action: 'seal', target: configFile, mode: 0o600, why: 'the config decides what agents may do' },
     { action: 'seal', target: PACKAGE_ROOT, mode: 0o755, why: 'the studio\'s own code stays readable but not writable' },
@@ -192,8 +206,14 @@ export function applyConfinement(plan = [], { fsImpl = fs } = {}) {
   for (const step of plan) {
     try {
       if (!fsImpl.existsSync(step.target)) continue;
-      if (step.action === 'own') chownTree(step.target, step.uid, step.gid, fsImpl);
-      else fsImpl.chmodSync(step.target, step.mode);
+      if (step.action === 'own') {
+        chownTree(step.target, step.uid, step.gid, fsImpl, 0, new Set(step.exclude || []));
+      } else {
+        // Ownership as well as mode: a file the agent owns is a file the agent
+        // can chmod back open, so sealing without owning seals nothing.
+        try { fsImpl.chownSync(step.target, 0, 0); } catch { /* already the studio's */ }
+        fsImpl.chmodSync(step.target, step.mode);
+      }
       applied.push(step);
     } catch (err) {
       return { ok: false, applied, failed: step, error: `${step.action} ${step.target}: ${err.message}` };
@@ -202,10 +222,11 @@ export function applyConfinement(plan = [], { fsImpl = fs } = {}) {
   return { ok: true, applied, failed: null, error: '' };
 }
 
-function chownTree(target, uid, gid, fsImpl, depth = 0) {
+function chownTree(target, uid, gid, fsImpl, depth = 0, exclude = new Set()) {
   // Deep enough for any repository, shallow enough that a symlink loop or a
   // pathological tree cannot hang the studio's startup.
   if (depth > 40) return;
+  if (exclude.has(path.resolve(target))) return;
   fsImpl.chownSync(target, uid, gid);
   let entries = [];
   try {
@@ -219,7 +240,8 @@ function chownTree(target, uid, gid, fsImpl, depth = 0) {
       try { fsImpl.lchownSync(child, uid, gid); } catch { /* a dangling link is not a failure */ }
       continue;
     }
-    if (entry.isDirectory()) chownTree(child, uid, gid, fsImpl, depth + 1);
+    if (exclude.has(path.resolve(child))) continue;
+    if (entry.isDirectory()) chownTree(child, uid, gid, fsImpl, depth + 1, exclude);
     else {
       try { fsImpl.chownSync(child, uid, gid); } catch { /* a file we cannot own is reported by the walk above */ }
     }

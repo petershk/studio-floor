@@ -97,6 +97,7 @@ const plan = confinementPlan({
   workDir: '/workspace/game',
   stateDir: '/workspace/game/studio_floor/state',
   configFile: '/workspace/game/studio_floor/config.json',
+  homeDir: '/workspace/game/studio_floor',
 });
 const step = (action, target) => plan.find((s) => s.action === action && s.target === target);
 
@@ -109,7 +110,19 @@ check('so is the config that decides what agents may do',
 check('the path down to the work directory stays enterable but not listable',
   plan.filter((s) => s.action === 'traverse').every((s) => s.mode === 0o711)
   && plan.some((s) => s.action === 'traverse'), JSON.stringify(plan.filter((s) => s.action === 'traverse')));
+check("the studio's own folder is sealed whole, not just its contents",
+  step('seal', '/workspace/game/studio_floor')?.mode === 0o700);
 check('every step says why it is there', plan.every((s) => Boolean(s.why)));
+
+// The case that matters in practice. `workDir: "."` puts studio_floor/ *inside*
+// the directory being handed to the agent, so the ownership walk has to step
+// around it. It did not, and a real run of confine-root.mjs found it: the agent
+// owned the event log, and a file you own you can unseal.
+const own = plan.find((s) => s.action === 'own');
+check("the ownership walk is told to skip the studio's own paths",
+  (own.exclude || []).some((p) => p.endsWith(`${path.sep}studio_floor`)), JSON.stringify(own.exclude));
+check('including the event log and the config',
+  (own.exclude || []).length >= 3, JSON.stringify(own.exclude));
 
 // ----------------------------------------------------------------- applying
 
@@ -122,7 +135,31 @@ const fake = {
   readdirSync: () => [],
 };
 const okRun = applyConfinement(plan, { fsImpl: fake });
-check('applying a plan touches every step', okRun.ok && calls.length === plan.length, `${calls.length} of ${plan.length}`);
+check('applying a plan touches every step', okRun.ok && okRun.applied.length === plan.length,
+  `${okRun.applied.length} of ${plan.length}`);
+check("a sealed path is taken back into the studio's ownership as well as its mode",
+  calls.some(([what, target, arg]) => what === 'chown' && target === '/workspace/game/studio_floor' && arg === 0),
+  JSON.stringify(calls));
+
+// The walk, against a tree that contains the studio's own folder.
+const walked = [];
+const tree = {
+  existsSync: () => true,
+  chmodSync: () => {},
+  chownSync: (t) => walked.push(t),
+  lchownSync: () => {},
+  readdirSync: (dir) => (dir === '/workspace/game'
+    ? [
+      { name: 'main.js', isDirectory: () => false, isSymbolicLink: () => false },
+      { name: 'studio_floor', isDirectory: () => true, isSymbolicLink: () => false },
+    ]
+    : []),
+};
+applyConfinement([plan.find((s) => s.action === 'own')], { fsImpl: tree });
+check('the agent is given the work directory', walked.includes('/workspace/game'));
+check('and the file in it', walked.some((t) => t.endsWith('main.js')));
+check("but never the studio's own folder",
+  !walked.some((t) => t.includes('studio_floor')), walked.join(', '));
 
 const boom = {
   ...fake,

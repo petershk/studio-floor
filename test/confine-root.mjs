@@ -36,6 +36,7 @@ const { confinement, confinementPlan, applyConfinement } = await import('../src/
 const { agentEnv } = await import('../src/agents/child-env.mjs');
 
 let failures = 0;
+const firstLine = (s) => String(s || '').trim().split('\n')[0];
 function check(name, ok, detail = '') {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${name}${ok || !detail ? '' : ` — ${detail}`}`);
   if (!ok) failures++;
@@ -106,6 +107,53 @@ try {
 
   // The studio keeps working: root owns nothing it needs to give up.
   check('the studio can still read its own log', fs.readFileSync(path.join(stateDir, 'events.jsonl'), 'utf8').length > 0);
+
+  // ---------------------------------------------------------- workDir: "."
+  //
+  // The common case, and the one that broke: the whole project is the work
+  // directory, so studio_floor/ sits *inside* what is handed to the agent. The
+  // ownership walk has to step around it, or the agent owns the event log — and
+  // a file you own you can chmod back open, whatever its mode says.
+  const whole = path.join(tmp, 'whole');
+  const wholeState = path.join(whole, 'studio_floor', 'state');
+  const wholeConfig = path.join(whole, 'studio_floor', 'config.json');
+  fs.mkdirSync(wholeState, { recursive: true });
+  fs.writeFileSync(path.join(wholeState, 'events.jsonl'), '{"seq":1}\n');
+  fs.writeFileSync(wholeConfig, '{"project":{"workDir":"."}}\n');
+  fs.writeFileSync(path.join(whole, 'main.js'), '// the project itself\n');
+
+  const wholeVerdict = confinement({ mode: 'require', userName: USER, workDir: whole, shared: true });
+  const wholeApplied = applyConfinement(confinementPlan({
+    user: wholeVerdict.user, workDir: whole, stateDir: wholeState, configFile: wholeConfig,
+    homeDir: path.join(whole, 'studio_floor'),
+  }));
+  check('the plan applies when the project is the work directory', wholeApplied.ok, wholeApplied.error);
+
+  const inWhole = (script) => spawnSync(process.execPath, ['-e', script], {
+    uid: wholeVerdict.user.uid,
+    gid: wholeVerdict.user.gid,
+    env: agentEnv({ studio: { HOME: wholeVerdict.user.home } }),
+    encoding: 'utf8',
+    timeout: 20_000,
+  });
+
+  const buildsHere = inWhole(`require('fs').writeFileSync(${JSON.stringify(path.join(whole, 'out.txt'))}, 'x')`);
+  check('the agent can still build in the project', buildsHere.status === 0, (buildsHere.stderr || '').trim());
+
+  const readsLog = inWhole(`require('fs').readFileSync(${JSON.stringify(path.join(wholeState, 'events.jsonl'))}, 'utf8')`);
+  check('but the event log inside it is still closed',
+    readsLog.status !== 0, firstLine(readsLog.stderr));
+
+  const lists = inWhole(`require('fs').readdirSync(${JSON.stringify(path.join(whole, 'studio_floor'))})`);
+  check('and the studio folder cannot even be listed',
+    lists.status !== 0, firstLine(lists.stderr));
+
+  const unseal = inWhole(`require('fs').chmodSync(${JSON.stringify(path.join(whole, 'studio_floor'))}, 0o777)`);
+  check('nor unsealed, because the agent does not own it',
+    unseal.status !== 0, firstLine(unseal.stderr));
+
+  const owner = fs.statSync(path.join(wholeState, 'events.jsonl'));
+  check('the log is still owned by the studio', owner.uid === 0, `uid ${owner.uid}`);
 } finally {
   if (!existed) spawnSync('userdel', ['--remove', USER], { encoding: 'utf8' });
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* leftover tmp */ }
