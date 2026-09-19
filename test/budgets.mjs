@@ -29,7 +29,7 @@ const cfgPath = path.join(tmp, 'studio_floor', 'config.json');
 fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Budget fixture\n\nProve the budgets stop the team.\n');
 fs.writeFileSync(cfgPath, JSON.stringify({
-  project: { name: 'Budget fixture', brief: 'PROJECT.md' },
+  project: { name: 'Budget fixture', brief: 'PROJECT.md', workDir: '.' },
   agents: [{ id: 'alpha', provider: 'grok' }, { id: 'beta', provider: 'grok' }],
 }, null, 2));
 
@@ -73,7 +73,7 @@ function makeRunner(store, budgets = {}) {
     idleBackoffMs: [0],
     turnTimeoutMs: 15_000,
     commandLineBudget: 28_000,
-    project: { name: 'Budget fixture', brief: 'PROJECT.md' },
+    project: { name: 'Budget fixture', brief: 'PROJECT.md', workDir: '.' },
     agents: ['alpha', 'beta'],
     // A command that does not exist. Nothing should ever spawn it: every case
     // here must stop at the pre-turn gate, and a spawn attempt means it did not.

@@ -1,8 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { resolveLaunch } from '../agents/launch.mjs';
 import { getAdapter } from '../agents/adapters/index.mjs';
 import { resolveAuth } from './auth.mjs';
-import { WORK_DIR } from './roster.mjs';
+import { WORK_DIR, AGENTS_READY } from './roster.mjs';
 
 /**
  * Does this agent actually work?
@@ -55,12 +58,16 @@ export function tryAgent(record, { timeoutMs = 90_000, env = process.env } = {})
   };
   for (const name of auth.unset) delete childEnv[name];
 
-  return new Promise((resolve) => {
+  // Checking a login is a legitimate thing to do before a work directory is
+  // chosen, so it is allowed — in an empty scratch directory rather than one
+  // nobody picked, removed again afterwards.
+  const scratch = AGENTS_READY.ready ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'studio-try-'));
+  const ran = new Promise((resolve) => {
     const startedAt = Date.now();
     let child;
     try {
       child = spawn(launch.command, [...(launch.prefixArgs || []), ...args], {
-        cwd: WORK_DIR.path,
+        cwd: scratch || WORK_DIR.path,
         env: childEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
@@ -135,6 +142,10 @@ export function tryAgent(record, { timeoutMs = 90_000, env = process.env } = {})
       });
     });
     return undefined;
+  });
+  if (!scratch) return ran;
+  return ran.finally(() => {
+    try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 }
 

@@ -84,6 +84,12 @@ Between turns the runner injects what changed — the inbox, the brief, and why 
 was woken. That injection is the entire difference between a team and several
 agents answering the same prompt.
 
+None of this starts until a human has chosen where the team works.
+`agentReadiness` in `core/config.mjs` holds every agent idle while
+`project.workDir` is unset, and refuses one that is or contains the studio's own
+code. It used to default to wherever the studio was launched, which from inside
+the studio's clone meant the agents' first project was the tool running them.
+
 An agent is woken when it is addressed, when a task naming it as owner or
 reviewer changes, when a debate opens, and when the human says anything. Not on
 a timer.

@@ -143,12 +143,14 @@ async function init() {
   }
   for (const f of r.created) console.log(`  created  ${f}`);
   if (!r.created.length) console.log('  kept     everything that was already here');
+  if (r.held) console.log(`
+  agents will stay idle: ${r.held}`);
 
   console.log(`
   Next:
     1. Write what you actually want built into ${cfg.project.brief}.
        The agents read it first and it is the authority on the project.
-    2. Edit studio.config.json to set your roster.
+    2. Edit studio_floor/config.json to set your roster.
     3. studio doctor
     4. studio start
 `);
@@ -247,7 +249,7 @@ async function clone() {
 
 async function doctor() {
   const { spawnSync } = await import('node:child_process');
-  const { CONFIG, AGENTS } = await load(SRC, 'core', 'roster.mjs');
+  const { CONFIG, AGENTS, WORK_DIR, AGENTS_READY } = await load(SRC, 'core', 'roster.mjs');
   const { getAdapter, loadUserAdapters, providers } = await load(SRC, 'agents', 'adapters', 'index.mjs');
   const { resolveLaunch } = await load(SRC, 'agents', 'launch.mjs');
   const { resolveAuth } = await load(SRC, 'core', 'auth.mjs');
@@ -262,9 +264,11 @@ async function doctor() {
   let problems = 0;
   let briefProblems = 0;
   let agentProblems = 0;
+  let workDirProblems = 0;
   const fail = (msg, kind = 'agent') => {
     problems++;
     if (kind === 'brief') briefProblems++;
+    else if (kind === 'workdir') workDirProblems++;
     else agentProblems++;
     console.log(`  FAIL  ${msg}`);
   };
@@ -291,7 +295,11 @@ async function doctor() {
     console.log(`  also saw   ${siblings.join(', ')} — not the brief this session will read`);
   }
 
+  console.log(`  work dir   ${AGENTS_READY.ready ? WORK_DIR.path : '(not set)'}`);
   console.log(`  providers  ${providers().join(', ')}\n`);
+
+  if (AGENTS_READY.ready) ok(`work directory ${WORK_DIR.path}`);
+  else fail(`agents will stay idle: ${AGENTS_READY.reason}`, 'workdir');
 
   let inferredBrief = false;
   if (!fs.existsSync(brief)) {
@@ -362,6 +370,7 @@ async function doctor() {
     }
   } else {
     const bits = [];
+    if (workDirProblems) bits.push('no agent will start until a work directory is set');
     if (briefProblems) bits.push('the team has no written brief');
     if (agentProblems) bits.push('those agents cannot run');
     console.log(`\n  ${problems} problem(s). The studio will start, but ${bits.join(', and ')}.\n`);

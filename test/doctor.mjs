@@ -49,7 +49,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-doctor-'));
 // exits 0 everywhere, so the agent half is now a constant and the brief half is
 // what is actually under test.
 const cfg = {
-  project: { name: 'Doctor Test', brief: 'PROJECT.md' },
+  project: { name: 'Doctor Test', brief: 'PROJECT.md', workDir: '.' },
   agents: [{ id: 'only', provider: 'grok', persona: 'adversary', command: process.execPath }],
 };
 fs.mkdirSync(path.join(tmp, 'studio_floor'));

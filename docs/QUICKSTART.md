@@ -294,11 +294,17 @@ the team's entire memory for this project — appears at `studio_floor/state/`.
 That subdirectory is gitignored for you; the config beside it is not, because it
 is worth committing.
 
-**`studio init` is optional.** Point the studio at a directory with no brief and
-the team reads the code, works out what the project is, drafts `PROJECT.md`
-itself, and asks you to confirm it before building anything. Use `init` when you
-are starting something new and want the template; skip it when you are pointing
-the team at a repository that already exists.
+`studio init` also sets `project.workDir` to `"."`, which points the team at
+this directory. **No agent starts until a work directory is set**, so a studio
+started somewhere nobody chose — including inside the studio's own clone — sits
+idle rather than going to work on whatever it found. A work directory that is or
+contains the studio's own code is refused however it was set.
+
+You can skip `init` when you are pointing the team at a repository that already
+exists: set the work directory in **Settings** instead (`.` for the whole
+repository). With no brief, the team reads the code, works out what the project
+is, drafts `PROJECT.md` itself, and asks you to confirm it before building
+anything.
 
 Both `PROJECT.md` and `studio_floor/config.json` are yours. Committing them is usually
 right — the team's brief belongs with the code it describes.
@@ -460,7 +466,7 @@ Each agent has three things that matter:
 
 - **`id`** — what the team calls it. Any lowercase name: `architect`, `builder`,
   `alice`.
-- **`provider`** — which CLI to launch: `claude`, `codex`, or `grok`.
+- **`provider`** — which CLI to launch: `claude`, `codex`, `grok`, or `gemini`.
 - **`persona`** — what it is for.
 
 **An `id` is not a provider.** Two agents can share one provider with completely
@@ -534,8 +540,10 @@ Expected:
   studio doctor — /home/you/my-project
 
   config     /home/you/my-project/studio_floor/config.json
+  work dir   /home/you/my-project
   providers  codex, claude, grok
 
+  ok    work directory /home/you/my-project
   ok    project brief PROJECT.md
   ok    architect → claude (claude — 2.1.233 (Claude Code))
   ok    builder → claude (claude — 2.1.233 (Claude Code))
@@ -548,6 +556,7 @@ Every line must say `ok`. Common failures:
 
 | Line | Meaning | Fix |
 | --- | --- | --- |
+| `agents will stay idle: no working directory is set` | nobody has chosen where the team works | set `project.workDir` — `studio init` does it, or Settings, or the file |
 | `no project brief at PROJECT.md` | the brief is missing | you are in the wrong directory, or `studio init` was never run |
 | `"claude" is not installed or not on PATH` | the CLI is missing | go back to step 3; open a **new** terminal after installing |
 | `no adapter for provider "gemini"` | typo, or a provider with no adapter | fix the name, or see [ADAPTERS.md](ADAPTERS.md) |
@@ -658,7 +667,7 @@ to see something happening.
   answer them in the message box.
 - **They build something you did not ask for.** "Done" was not concrete enough.
 
-All three are cheap to fix: `Ctrl-C`, edit `PROJECT.md`, `rm -rf .studio`,
+All three are cheap to fix: `Ctrl-C`, edit `PROJECT.md`, `rm -rf studio_floor/state`,
 start again.
 
 ---
@@ -700,6 +709,9 @@ it has a brief, and how many recorded events are waiting. Then:
 The studio works on one project at a time. Recently opened directories are
 listed as buttons, so switching back is one click.
 
+A directory the studio has not been set up in has no work directory yet, so
+the team stays idle there until you set one in the same tab.
+
 If the directory has no `PROJECT.md`, the team reads the code, works out what
 the project is, drafts one, and asks you to confirm it before building anything.
 
@@ -734,7 +746,9 @@ from a bad plan.
 clone, in a new terminal.
 
 **Everything says `offline` and nothing happens**
-You probably ran `studio start --no-agents`. Restart without the flag.
+Either no work directory is set — the startup banner and the Timeline say so,
+and Settings shows *Agents stay idle* — or you ran `studio start --no-agents`.
+Set `project.workDir`, or restart without the flag.
 
 **An agent goes to `error` immediately, every time**
 It is installed but not logged in. Run its provider's login command
@@ -771,7 +785,7 @@ saving it would write a config that crashes `studio start` before it prints
 anything.
 
 **Settings will not let me set `command` / `extraArgs` / `env`**
-By design — see step 9. Edit `studio.config.json` directly. Anything you set
+By design — see step 9. Edit `studio_floor/config.json` directly. Anything you set
 there survives later edits made in the panel.
 
 **Settings shows "the config file could not be read"**

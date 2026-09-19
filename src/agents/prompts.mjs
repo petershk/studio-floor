@@ -289,24 +289,25 @@ function projectSection(project = {}) {
 
   if (project.name) lines.push(`This project is called "${project.name}".`);
 
-  // The sandbox already stops them leaving; this stops them trying, and stops
-  // them reporting a task blocked on a permission they were never going to get.
-  if (WORK_DIR.scoped) {
-    lines.push(
-      '',
-      `=== YOU WORK IN ${WORK_DIR.relative}/ ===`,
-      '',
-      `Everything you build goes in ${WORK_DIR.path}. That is your working`,
-      'directory and the only place you can write — the rest of this repository is',
-      'code that happens to be nearby and is not yours, including the studio you are',
-      'running inside. Do not edit it, and do not propose changes to it as part of',
-      'this project.',
-      '',
-      'You may read outside that directory when it helps you understand something.',
-      'If you genuinely believe work is needed elsewhere, raise it for the human',
-      'rather than doing it.',
-    );
-  }
+  // The sandbox already stops them writing elsewhere; this stops them trying,
+  // and stops them reporting a task blocked on a permission they were never
+  // going to get. Reading is not something every CLI can fence off — a shell
+  // command can open any file the user can — so the boundary on looking is
+  // stated here, as a rule, for every agent and not only a scoped one.
+  lines.push(
+    '',
+    `=== YOU WORK IN ${WORK_DIR.relative ? `${WORK_DIR.relative}/` : WORK_DIR.path} ===`,
+    '',
+    `${WORK_DIR.path} is the only directory you are configured to see. Read,`,
+    'write, search and run commands inside it and nowhere else: do not list,',
+    'open or search parent directories, sibling projects, your home directory,',
+    'or the studio you are running inside — none of it is part of this project,',
+    'and the studio is not yours to change. The two exceptions are the project',
+    `brief (${abs}) and the studio command you use to talk to the team.`,
+    '',
+    'If you genuinely believe something outside this directory matters, raise it',
+    'for the human rather than looking for yourself.',
+  );
   if (project.goal) lines.push('', project.goal.trim());
 
   // Always name the resolved path. A relative "PROJECT.md" is how this

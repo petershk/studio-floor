@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STATE_DIR, TRANSCRIPT_DIR, BASE_URL, STUDIO_CMD } from '../core/paths.mjs';
-import { CONFIG, AGENTS, WORK_DIR, getAgent } from '../core/roster.mjs';
+import { CONFIG, AGENTS, WORK_DIR, AGENTS_READY, getAgent } from '../core/roster.mjs';
 import { getAdapter } from './adapters/index.mjs';
 import { resolveLaunch } from './launch.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
@@ -138,6 +138,9 @@ export class Runner {
   }
 
   async startAll() {
+    // Refused once for the team rather than once per agent: it is one fact
+    // about the studio, and the banner and studio.started already carry it.
+    if (!AGENTS_READY.ready) return;
     let delay = 0;
     for (const id of this.config.agents) {
       setTimeout(() => this.start(id), delay);
@@ -148,6 +151,10 @@ export class Runner {
   async start(id) {
     const a = this.agents.get(id);
     if (!a || a.running) return;
+    if (!AGENTS_READY.ready) {
+      this.store.append('agent.state', id, { state: 'offline', note: `not started: ${AGENTS_READY.reason}` });
+      return;
+    }
     a.running = true;
     a.stopping = false;
     this.store.append('agent.state', id, { state: 'starting', note: 'process starting' });

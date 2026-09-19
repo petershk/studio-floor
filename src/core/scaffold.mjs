@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaultConfig, writeConfig } from './config.mjs';
+import { defaultConfig, writeConfig, resolveWorkDir, agentReadiness } from './config.mjs';
 
 /**
  * Starting a project from nothing.
@@ -67,6 +67,12 @@ export function initProject(dir, { name = path.basename(dir) } = {}) {
 
   const cfg = defaultConfig();
   cfg.project.name = name;
+  // Creating a project here is the human choosing it, so the team is pointed
+  // at it — unless "here" is the studio's own clone, which stays unset and
+  // holds the agents idle until someone names a directory that is not the tool.
+  const whole = resolveWorkDir('.', root);
+  const held = agentReadiness(whole);
+  if (held.ready) cfg.project.workDir = '.';
 
   const configFile = path.join(root, 'studio_floor', 'config.json');
   const { written } = writeConfig(configFile, cfg);
@@ -78,5 +84,10 @@ export function initProject(dir, { name = path.basename(dir) } = {}) {
     created.push(briefPath);
   }
 
-  return { ok: true, path: root, brief: briefPath, created };
+  return {
+    ok: true, path: root, brief: briefPath, created,
+    // Only meaningful when this call wrote the config; an existing one says
+    // whatever it already said.
+    held: written && !held.ready ? held.reason : '',
+  };
 }

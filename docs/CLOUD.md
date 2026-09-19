@@ -114,6 +114,11 @@ to, so `/workspace/thing/studio_floor/` holds that project's config and event
 log, and coming back to it later picks up exactly where the team left off.
 Switching between repositories is switching between teams-with-memory.
 
+The team stays idle there until you set the work directory — Settings → *Work
+directory*, `.` for the whole repository — and restart. The studio starts
+pointed at `/workspace`, which is not a project, so nothing may run until a human
+has chosen one.
+
 A private repository needs `STUDIO_GIT_TOKEN`. Without one, the clone fails at
 once rather than hanging on a password prompt that has no terminal to appear on.
 
