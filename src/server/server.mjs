@@ -12,7 +12,7 @@ import {
 } from '../core/memory.mjs';
 import { DEBATE_ROUNDS, atRoundLimit, positionLimit } from '../core/debate.mjs';
 import {
-  AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG, WORK_DIR,
+  AGENTS, SERVER as SERVER_CONFIG, PROJECT, RUNNER as RUNNER_CONFIG, WORK_DIR, AGENTS_READY,
 } from '../core/roster.mjs';
 import { providers, getAdapter } from '../agents/adapters/index.mjs';
 import {
@@ -201,6 +201,11 @@ export function createHttpServer(store, runner) {
             scoped: WORK_DIR.scoped,
             exists: WORK_DIR.exists !== false,
             problem: WORK_DIR.problem || '',
+            // Whether any agent may run here, and if not, why — the one thing
+            // the panel must say before anything else when it is false.
+            set: WORK_DIR.set,
+            ready: AGENTS_READY.ready,
+            held: AGENTS_READY.reason,
           },
           building: (() => {
             const pv = resolvePreview(SERVER_CONFIG.preview);

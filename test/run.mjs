@@ -42,6 +42,7 @@ const STUDIO_TESTS = [
   'usage.mjs',
   'launch.mjs',
   'launch-failed.mjs',
+  'workdir-gate.mjs',
   'turn-failed.mjs',
   'budgets.mjs',
   'liveness.mjs',

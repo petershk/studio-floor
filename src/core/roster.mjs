@@ -1,4 +1,4 @@
-import { loadConfig, resolveWorkDir } from './config.mjs';
+import { loadConfig, resolveWorkDir, agentReadiness } from './config.mjs';
 
 /**
  * The resolved team, loaded once per process.
@@ -49,3 +49,9 @@ export const PROJECT = CONFIG.project;
  * write in" is not a thing to work out twice.
  */
 export const WORK_DIR = resolveWorkDir(CONFIG.project?.workDir);
+
+/**
+ * Whether agents may run at all, and if not, why. `ready: false` holds every
+ * agent idle: the server still runs, so the human can set the directory.
+ */
+export const AGENTS_READY = agentReadiness(WORK_DIR);

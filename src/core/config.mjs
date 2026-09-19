@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONFIG_FILE, PROJECT_ROOT } from './paths.mjs';
+import { CONFIG_FILE, PROJECT_ROOT, PACKAGE_ROOT } from './paths.mjs';
 import { AUTH_MODES } from './auth.mjs';
 
 /**
@@ -345,9 +345,9 @@ export function defaultConfig() {
       name: path.basename(PROJECT_ROOT),
       brief: 'PROJECT.md',
       goal: '',
-      // Empty means the whole project, which is what a studio pointed at a
-      // repository wants. Set it when the thing being built is one directory
-      // inside something larger — see workDir handling below.
+      // Empty means not chosen yet, and agents do not start until it is —
+      // see agentReadiness below. "." is the whole project; a subdirectory
+      // is for when the thing being built sits inside something larger.
       workDir: '',
       /**
        * Where the team commits.
@@ -599,7 +599,7 @@ export const PROJECT_EDITABLE = ['name', 'goal', 'brief', 'workDir', 'commitTo']
  */
 export function resolveWorkDir(workDir, projectRoot = PROJECT_ROOT) {
   const want = typeof workDir === 'string' ? workDir.trim() : '';
-  if (!want) return { path: projectRoot, relative: '', scoped: false };
+  if (!want) return { path: projectRoot, relative: '', scoped: false, set: false };
 
   const resolved = path.resolve(projectRoot, want);
   const inside = resolved === projectRoot
@@ -609,6 +609,7 @@ export function resolveWorkDir(workDir, projectRoot = PROJECT_ROOT) {
       path: projectRoot,
       relative: '',
       scoped: false,
+      set: false,
       problem: `project.workDir "${want}" resolves outside the project, so it is being ignored`,
     };
   }
@@ -618,8 +619,58 @@ export function resolveWorkDir(workDir, projectRoot = PROJECT_ROOT) {
     // into prompts and a Windows path with backslashes in one reads as escapes.
     relative: path.relative(projectRoot, resolved).split(path.sep).join('/'),
     scoped: resolved !== projectRoot,
+    set: true,
     exists: fs.existsSync(resolved),
   };
+}
+
+/**
+ * The studio's own top-level directories. A work directory inside one of these
+ * is the tool editing itself, even though it sits below the package root.
+ * `test_project/` and other scratch beside them are fine: that is how the
+ * studio's own team dogfoods it.
+ */
+const STUDIO_OWN_DIRS = ['bin', 'src', 'test', 'docs', 'examples', '.github', '.git'];
+
+/**
+ * May agents run against this work directory?
+ *
+ * Nothing starts until a human has said where the team works. Falling back to
+ * wherever the studio happened to be launched meant `studio start` from inside
+ * the studio's own clone — or a container's /workspace, a folder of
+ * repositories — handed the agents a directory nobody chose, and the first one
+ * they were likely to be handed was the studio itself. So an unset work
+ * directory holds the agents idle, and a work directory that is or contains
+ * the studio's own code is refused however it was set.
+ */
+export function agentReadiness(wd, { packageRoot = PACKAGE_ROOT } = {}) {
+  if (wd.problem) return { ready: false, reason: wd.problem };
+  if (!wd.set) {
+    return {
+      ready: false,
+      reason: 'no working directory is set — set project.workDir in Settings or in the '
+        + 'config file ("." for the whole project) and restart',
+    };
+  }
+  if (wd.exists === false) {
+    return { ready: false, reason: `project.workDir "${wd.relative}" does not exist` };
+  }
+  // Windows paths compare case-insensitively; `c:\` and `C:\` are one drive.
+  const norm = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const pkg = norm(packageRoot);
+  const dir = norm(wd.path);
+  const within = (child, parent) => child === parent
+    || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep);
+  const own = within(pkg, dir)
+    || STUDIO_OWN_DIRS.some((d) => within(dir, path.join(pkg, d)));
+  if (own) {
+    return {
+      ready: false,
+      reason: `${wd.path} holds the studio's own code — the agents will not work on the tool `
+        + 'running them. Point project.workDir at the thing you want built',
+    };
+  }
+  return { ready: true, reason: '' };
 }
 
 /**

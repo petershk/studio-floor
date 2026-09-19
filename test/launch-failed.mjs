@@ -21,7 +21,7 @@ const cfgPath = path.join(tmp, 'studio_floor', 'config.json');
 fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Launch-failed fixture\n\nProve the breaker fires.\n');
 fs.writeFileSync(cfgPath, JSON.stringify({
-  project: { name: 'Launch-failed fixture', brief: 'PROJECT.md' },
+  project: { name: 'Launch-failed fixture', brief: 'PROJECT.md', workDir: '.' },
   agents: [{ id: AGENT, provider: 'grok', persona: 'adversary', command: MISSING }],
   runner: { maxTurns: 10, cooldownMs: 0, staggerMs: 0, idleBackoffMs: [0], turnTimeoutMs: 15_000 },
 }, null, 2));
@@ -48,7 +48,7 @@ const runner = new Runner(store, {
   idleBackoffMs: [0],
   turnTimeoutMs: 15_000,
   commandLineBudget: 28_000,
-  project: { name: 'Launch-failed fixture', brief: 'PROJECT.md' },
+  project: { name: 'Launch-failed fixture', brief: 'PROJECT.md', workDir: '.' },
   agents: [AGENT],
   roster: [{
     id: AGENT,

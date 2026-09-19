@@ -62,7 +62,8 @@ silently would orphan that project's event log.
   "project": {
     "name": "My Game",
     "brief": "PROJECT.md",
-    "goal": "One paragraph, for agents that have not read the brief yet."
+    "goal": "One paragraph, for agents that have not read the brief yet.",
+    "workDir": "."
   },
   "agents": [
     { "id": "architect", "provider": "claude", "persona": "architect" },
@@ -75,6 +76,8 @@ silently would orphan that project's event log.
   "adapters": ["./adapters/gemini.mjs"],
   "runner": {
     "maxTurns": 200,
+    "maxWallMs": 0,
+    "maxSpendUsd": 0,
     "turnTimeoutMs": 1200000,
     "cooldownMs": 4000,
     "staggerMs": 10000,
@@ -92,6 +95,12 @@ silently would orphan that project's event log.
 | `name` | shown in the UI and the browser tab. Defaults to the directory name. |
 | `brief` | the file agents read first. Default `PROJECT.md`. |
 | `goal` | optional one-paragraph summary injected into the first-turn prompt. |
+| `workDir` | **where the team works, and required before any agent starts.** `"."` for the whole project, or a subdirectory of it. Unset, every agent stays idle; a directory that is or contains the studio's own code is refused. `studio init` sets it to `"."`. |
+| `commitTo` | `branch` (default) gives every task its own `studio/<task>` branch; `current` commits on whatever is checked out. |
+
+Agents are launched in `workDir` and told it is the only directory they may
+look at. The CLIs' own sandboxes keep writes there; reads from a shell command
+are not blocked by any of them, so a container is the way to contain those.
 
 If the brief file does not exist, agents are told so explicitly and instructed
 to ask you rather than guess. That is deliberate: a team that invents its own
@@ -230,6 +239,8 @@ derived from your rates is labelled `est`.
 | key | meaning |
 | --- | --- |
 | `maxTurns` | per-agent turn budget. The agent stops when it is reached. |
+| `maxWallMs` | how long this run may last. `0` (default) means no limit. Checked before each turn; stops the whole team. |
+| `maxSpendUsd` | dollars this run may spend, measured from its start. `0` (default) means no limit. Checked before each turn; stops the whole team. A provider that reports no cost and has no rate in `prices` contributes nothing, so this can undercount. |
 | `turnTimeoutMs` | a turn is killed if it runs longer than this. |
 | `cooldownMs` | pause between an agent's turns, so it cannot spin. |
 | `staggerMs` | delay between agent starts, so they do not all boot into the same second. |
@@ -258,7 +269,7 @@ straightforward.
 | --- | --- |
 | `STUDIO_PROJECT_ROOT` | the project the agents work in. Same as `--project`. |
 | `STUDIO_CONFIG` | path to the config file. |
-| `STUDIO_STATE_DIR` | where the event log lives. Default `<project>/.studio`. Point it at a volume in a container. |
+| `STUDIO_STATE_DIR` | where the event log lives. Default `<project>/studio_floor/state` (`<project>/.studio` in a legacy-layout project). Point it at a volume in a container. |
 | `STUDIO_PORT` | port. `0` picks a free one and prints it. |
 | `STUDIO_HOST` | bind address. |
 | `STUDIO_URL` | how agents reach the server. Set when it is not on loopback. |

@@ -290,9 +290,11 @@ function projectBlock() {
 
       <div class="set-current">
         <div class="muted">The team works on</div>
-        <div class="mono">${esc(wd?.path || cur.path)}</div>
+        <div class="mono">${wd && !wd.ready ? '<b>nothing yet</b>' : esc(wd?.path || cur.path)}</div>
+        ${wd && !wd.ready ? `<div class="set-warn">
+          Agents stay idle: ${esc(wd.held)}.</div>` : ''}
         <div class="muted">
-          ${wd?.scoped
+          ${wd && !wd.ready ? '' : wd?.scoped
     ? `the only directory the agents can write in — inside <span class="mono">${esc(cur.path)}</span>`
     : 'the whole project — the agents can write anywhere in it'}
           ${wd?.scoped && !wd.exists ? ' · <b>that directory does not exist yet</b>' : ''}
@@ -320,12 +322,12 @@ function projectBlock() {
       </div>` : ''}
 
       <label class="set-f wide">
-        <span>Build in this subdirectory <em class="muted">optional</em></span>
+        <span>Work directory <em class="muted">required before any agent starts</em></span>
         <input class="input" data-path="project.workDir" value="${esc(draft.project.workDir || '')}"
-               spellcheck="false" placeholder="the whole project">
-        <em class="muted">Relative to the project. Every vendor CLI scopes its sandbox to the
-        directory it runs in, so this is what stops a team building in one folder from editing
-        everything around it — including the studio itself. Takes effect on restart.</em>
+               spellcheck="false" placeholder=". for the whole project, or a subdirectory">
+        <em class="muted">Relative to the project. The agents run in this directory and are told
+        it is the only one they may look at. Until it is set they stay idle, and a directory
+        holding the studio's own code is refused. Takes effect on restart.</em>
       </label>
 
       ${holdingPen ? `<div class="set-warn">

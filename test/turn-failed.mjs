@@ -32,6 +32,8 @@ import { randomUUID } from 'node:crypto';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-turn-failed-'));
 fs.mkdirSync(path.join(tmp, 'studio_floor'), { recursive: true });
 fs.writeFileSync(path.join(tmp, 'PROJECT.md'), '# Turn-failed fixture\n\nProve the breaker fires.\n');
+// Agents do not start until a work directory has been chosen.
+fs.writeFileSync(path.join(tmp, 'studio_floor', 'config.json'), '{"project":{"workDir":"."}}\n');
 
 // A provider that launches cleanly and then dies. That distinction is the whole
 // point: a launch failure is already handled, a turn failure was not.
@@ -87,7 +89,7 @@ const runner = new Runner(store, {
   failureBackoffMs: 0,
   turnTimeoutMs: 15_000,
   commandLineBudget: 28_000,
-  project: { name: 'Turn-failed fixture', brief: 'PROJECT.md' },
+  project: { name: 'Turn-failed fixture', brief: 'PROJECT.md', workDir: '.' },
   agents: ['mimic', 'mute'],
   roster: [
     { id: 'mimic', provider: 'fake-mimic', label: 'Mimic', persona: '', options: {} },

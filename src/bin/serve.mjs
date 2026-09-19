@@ -21,7 +21,7 @@ import {
   PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT, EXIT_SWITCH, EXIT_REFUSED,
 } from '../core/paths.mjs';
 import { startHeartbeat } from '../core/heartbeat.mjs';
-import { AGENT_IDS, AGENTS, CONFIG, PROJECT } from '../core/roster.mjs';
+import { AGENT_IDS, AGENTS, AGENTS_READY, CONFIG, PROJECT, WORK_DIR } from '../core/roster.mjs';
 
 const argv = process.argv.slice(2);
 const noAgents = argv.includes('--no-agents');
@@ -80,7 +80,9 @@ store.append('studio.started', null, {
   projectRoot: PROJECT_ROOT,
   project: PROJECT.name,
   agents: config.agents,
-  agentsAutoStarted: !noAgents,
+  agentsAutoStarted: !noAgents && AGENTS_READY.ready,
+  workDir: AGENTS_READY.ready ? WORK_DIR.path : null,
+  ...(AGENTS_READY.ready ? {} : { agentsHeld: AGENTS_READY.reason }),
 });
 
 const watchHost = HOST === '0.0.0.0' ? '<this-host>' : HOST;
@@ -114,9 +116,12 @@ console.log(`
   project    ${PROJECT_ROOT}
   config     ${CONFIG_FILE}${IS_LEGACY_LAYOUT ? '   (legacy layout)' : ''}
   state      ${STATE_DIR}
+  work dir   ${AGENTS_READY.ready ? WORK_DIR.path : '(not set)'}
   providers  ${providers().join(', ')}
   roster     ${AGENTS.map((a) => `${a.id}(${a.provider})`).join(', ')}
-  running    ${noAgents ? '(none — start them from the web UI)' : config.agents.join(', ')}
+  running    ${!AGENTS_READY.ready ? '(none — agents stay idle until a work directory is set)'
+    : noAgents ? '(none — start them from the web UI)' : config.agents.join(', ')}${AGENTS_READY.ready ? '' : `
+             ${AGENTS_READY.reason}`}
 
   ▸  Open ${watchUrl}
 ${TOKEN_HINT}     Ctrl-C to stop. Nothing is lost — the studio rebuilds from its log.

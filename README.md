@@ -50,9 +50,9 @@ cd ~/my-project
 git init
 
 # 3. set it up
-studio init                # optional — writes PROJECT.md + studio_floor/config.json
-                           # skip it to point the team at an existing repo and
-                           # have them read the code and draft the brief
+studio init                # writes PROJECT.md + studio_floor/config.json, and
+                           # points the team at this directory. Without it the
+                           # agents stay idle until you set a work directory
 
 # 4. write PROJECT.md — this is the step that decides whether it works
 $EDITOR PROJECT.md
@@ -133,6 +133,13 @@ inside it, at `studio_floor/state/`. The **Settings** tab switches directories:
 it checks what is there first, then stops the agents and restarts the studio
 pointed at the new one. Coming back to a project resumes it, because its log was
 waiting where it was left. There is a reset for when you want the opposite.
+
+**No agent starts until you have said where the team works.** That is
+`project.workDir` — `"."` for the whole project, or a subdirectory — set by
+`studio init`, in Settings, or in the file. Until then the studio serves the UI
+and every agent stays idle, and a work directory that is or contains the studio's
+own code is refused however it was set. The studio never works on itself by
+accident.
 
 Point it at a repository with no `PROJECT.md` and the team reads the code, works
 out what the project is, drafts the brief itself, and asks you to confirm before
@@ -248,6 +255,12 @@ The defaults let agents edit their project directory and run commands without
 asking. That is what makes them team members rather than assistants. It also
 means several agents are running commands on your machine with your credentials.
 
+Agents run in their work directory and are told it is the only one they may
+look at. What that can enforce varies: the CLIs' own sandboxes keep *writes*
+inside it, but a shell command can still *read* any file your user can. If
+reads must be contained, run the studio in its container (see
+[docs/CLOUD.md](docs/CLOUD.md)), where only the workspace is mounted.
+
 To watch before trusting it, start read-only:
 
 ```json
@@ -263,7 +276,7 @@ every file on disk untouched.
 ## Tests
 
 ```bash
-npm test                        # 39 files, offline, free, ~30s
+npm test                        # 40 files, offline, free, ~30s
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```

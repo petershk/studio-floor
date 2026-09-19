@@ -157,7 +157,7 @@ export function describe(ev) {
   const who = ev.agent || d.from || d.by || 'studio';
   switch (ev.kind) {
     case 'studio.started':
-      return 'Studio started';
+      return d.agentsHeld ? `Studio started — agents held idle: ${d.agentsHeld}` : 'Studio started';
     case 'studio.cleared': {
       const what = d.what === 'all' ? 'the conversation and the raw feed'
         : d.what === 'raw' ? 'the raw feed' : 'the conversation';
