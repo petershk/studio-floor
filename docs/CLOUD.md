@@ -69,6 +69,10 @@ ssh -N -L 4173:127.0.0.1:4173 root@<droplet-ip>
 open http://127.0.0.1:4173/?token=<STUDIO_TOKEN>
 ```
 
+**People.** The first person to open the studio sets up the owner account with
+the setup code printed in `docker compose logs studio`, then invites the rest.
+Accounts live on the state volume, so replacing the container keeps them.
+
 **A note on the token.** Open the studio once as `https://…/?token=<STUDIO_TOKEN>`.
 The page takes the token out of the URL — so it is not left in the address bar,
 in a bookmark or in a screenshot — keeps it, and sends it as a bearer header on

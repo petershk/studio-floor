@@ -107,6 +107,7 @@ export const EVENT_KINDS = [
   'human.control',
   'human.control.delivery-failed',
   'human.verdict',
+  'human.account',
 
   'inbox.delivered',
   'inbox.acked',
@@ -242,6 +243,10 @@ export function describe(ev) {
     }
     case 'human.control.delivery-failed':
       return `Control delivery failed${d.controlSeq ? ` for seq ${d.controlSeq}` : ''} -- ${firstLine(d.warning || d.reason)}`;
+    // Who may drive this studio is a change worth seeing in the history, beside
+    // the changes they then made.
+    case 'human.account':
+      return `${d.by || 'The operator'} ${d.action}`;
     case 'human.verdict':
       return `${speaker(d)} ${d.verdict} ${d.target}${d.text ? ` — ${humanText(d.text)}` : ''}`;
     case 'inbox.delivered':
@@ -279,7 +284,12 @@ function humanText(text) {
 const NEWLINE_RUN = /\s*\n\s*/;
 
 function speaker(d) {
-  return d?.via && d.via !== 'browser' ? `Human[via ${d.via}]` : 'Human';
+  // A name when there is an account to name, and "Human" when there is not —
+  // a studio with one person and a token is still a valid studio. The [via …]
+  // marker stays either way: it says the words did not come from the browser,
+  // which is a different claim from who typed them.
+  const name = d?.by || 'Human';
+  return d?.via && d.via !== 'browser' ? `${name}[via ${d.via}]` : name;
 }
 
 function firstLine(text) {

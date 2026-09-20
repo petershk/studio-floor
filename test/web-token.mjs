@@ -123,7 +123,10 @@ const child = spawnSync(process.execPath, [path.join(HERE, 'web-token-401.mjs')]
 const out = `${child.stdout || ''}${child.stderr || ''}`;
 check('the page survives a 401 rather than dying mid-render',
   child.status === 0, out.trim().split('\n').slice(-4).join(' | '));
-check('and says what to do about it', /THIS STUDIO NEEDS ITS TOKEN/.test(out), out.trim().slice(-200));
+// The wording followed the studio: a locked page now leads somewhere that can
+// unlock it, rather than naming a variable only the operator has.
+check('and says what to do about it', /NEEDS YOU TO SIGN IN/.test(out), out.trim().slice(-200));
+check('and offers the way in', /signin\.html/.test(out), out.trim().slice(-200));
 check('and the tab says it too, for a page nobody is looking at', /locked/.test(out), out.trim().slice(-200));
 
 console.log(`\n${failures ? `${failures} FAILED` : 'all checks passed'}\n`);

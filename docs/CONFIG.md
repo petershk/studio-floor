@@ -200,6 +200,36 @@ Only the endpoint is built in, never a model name — those move faster than thi
 file can, and a stale default silently routing to a retired model is worse than
 being asked for one.
 
+## People
+
+A studio with more than one human does not share a token. The first person to
+open it sets up an owner account with the **setup code** the studio prints when
+it starts with nobody in it — printed on the console, held only in memory, and
+gone once used. Everybody else joins through an invitation link the owner sends
+them however they already talk.
+
+| role | may |
+| --- | --- |
+| `owner` | everything: accounts, configuration, the work directory, the keys, which project |
+| `director` | direct the team — say things, answer escalations, create and assign tasks, start and stop agents |
+| `viewer` | watch. Costs nothing, and is the right role for somebody who only wants to see what the team decided |
+
+Sessions are bearer tokens held by the page, **not cookies**. This server
+answers `Access-Control-Allow-Origin: *`, so a cookie would be attached to
+requests made by any page in any tab — a cross-site request forgery hole into a
+studio that runs shell commands. A value in JavaScript is never sent
+cross-origin.
+
+`STUDIO_TOKEN` still works and is owner-level: scripts, the CLI and cron lines
+need a credential that is not a session. A studio with no token and no accounts
+is the open laptop case, unchanged — but the moment somebody creates an account,
+it closes.
+
+Accounts live outside any project, in `~/.studio-floor/accounts.json` or
+wherever `STUDIO_ACCOUNTS` points (the container puts it on the state volume).
+Never in a project's event log: logs get copied between machines and handed to
+whoever is debugging, and password hashes must not travel with them.
+
 ## `security`
 
 File-only, and the settings panel is not allowed to write it. The panel may

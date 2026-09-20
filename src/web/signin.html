@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Floor</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* This page is the one thing a person sees before they are anybody, so it
+     carries its own small layout rather than the whole studio's. */
+  .signin { max-width: 26rem; margin: 12vh auto; padding: 0 1rem; }
+  .signin h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+  .signin .lead { margin: 0 0 1.5rem; }
+  .signin label { display: block; margin: 0 0 .85rem; }
+  .signin label span { display: block; margin-bottom: .25rem; font-size: .85rem; }
+  .signin input { width: 100%; box-sizing: border-box; }
+  .signin button { width: 100%; padding: .6rem; }
+  .signin .why { margin-top: 1.25rem; font-size: .85rem; }
+  .signin .problem { margin: 0 0 1rem; padding: .6rem .75rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main class="signin">
+  <h1 id="title">Studio Floor</h1>
+  <p class="lead muted" id="lead">…</p>
+  <div class="set-warn problem" id="problem" hidden></div>
+  <form id="form" hidden></form>
+  <p class="why muted" id="why"></p>
+</main>
+<script type="module">
+const KEY = 'studio.token';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const invite = new URL(location.href).searchParams.get('invite');
+
+const field = (name, label, type = 'text', extra = '') =>
+  `<label><span>${esc(label)}</span><input class="input" name="${name}" type="${type}" ${extra}></label>`;
+
+function show({ title, lead, fields, button, why }) {
+  $('title').textContent = title;
+  $('lead').textContent = lead;
+  $('why').innerHTML = why || '';
+  $('form').innerHTML = `${fields}<button class="btn" type="submit">${esc(button)}</button>`;
+  $('form').hidden = false;
+}
+
+function problem(text) {
+  const el = $('problem');
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+/** A session is held exactly where the studio's own token is held, and for the
+ *  same reason: a value in JavaScript is never attached to a cross-origin
+ *  request, where a cookie would be. See src/web/token.js. */
+function keep(token) {
+  try { localStorage.setItem(KEY, token); } catch { /* private mode still works for this load */ }
+  location.href = '/';
+}
+
+async function post(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
+const values = (form) => Object.fromEntries(new FormData(form).entries());
+
+const state = await fetch('/api/auth/state').then((r) => r.json()).catch(() => ({}));
+
+if (state.needsSetup) {
+  show({
+    title: 'Set up this studio',
+    lead: 'Nobody has an account here yet. The first one is yours.',
+    fields: field('code', 'Setup code', 'text', 'autocomplete="off" spellcheck="false"')
+      + field('name', 'Your name') + field('email', 'Email', 'email')
+      + field('password', 'Password', 'password', 'autocomplete="new-password"'),
+    button: 'Create the owner account',
+    why: 'The setup code is printed in the studio\'s own console when it starts with no accounts. '
+      + 'Whoever can read that is whoever installed this studio.',
+  });
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    problem('');
+    const r = await post('/api/auth/setup', values(e.target));
+    if (r.body.ok) keep(r.body.token);
+    else problem(r.body.error || 'that did not work');
+  });
+} else if (invite) {
+  const who = await fetch(`/api/auth/invite?token=${encodeURIComponent(invite)}`).then((r) => r.json());
+  if (!who.ok) {
+    $('lead').textContent = who.error || 'that invitation is no longer valid';
+    $('why').innerHTML = 'Ask whoever invited you for a new link.';
+  } else {
+    show({
+      title: 'Join this studio',
+      lead: `You were invited as ${who.email} — a ${who.role}.`,
+      fields: field('name', 'Your name')
+        + field('password', 'Choose a password', 'password', 'autocomplete="new-password"'),
+      button: 'Join',
+      why: 'At least 12 characters.',
+    });
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      problem('');
+      const r = await post('/api/auth/accept', { ...values(e.target), token: invite });
+      if (r.body.ok) keep(r.body.token);
+      else problem(r.body.error || 'that did not work');
+    });
+  }
+} else {
+  show({
+    title: 'Sign in',
+    lead: 'This studio knows who you are.',
+    fields: field('email', 'Email', 'email', 'autocomplete="username"')
+      + field('password', 'Password', 'password', 'autocomplete="current-password"'),
+    button: 'Sign in',
+    why: state.open
+      ? 'This studio has no accounts and no token — you can also just <a href="/">open it</a>.'
+      : 'No account? Whoever runs this studio can send you an invitation link.',
+  });
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    problem('');
+    const r = await post('/api/auth/login', values(e.target));
+    if (r.body.ok) keep(r.body.token);
+    else problem(r.body.error || 'that email address and password do not match');
+  });
+}
+</script>
+</body>
+</html>

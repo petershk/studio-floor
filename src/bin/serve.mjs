@@ -21,6 +21,7 @@ import {
   PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT, EXIT_SWITCH, EXIT_REFUSED,
 } from '../core/paths.mjs';
 import { startHeartbeat } from '../core/heartbeat.mjs';
+import { currentSetupCode } from '../server/server.mjs';
 import {
   AGENT_IDS, AGENTS, AGENTS_READY, CONFINEMENT, CONFINEMENT_PLAN, CONFIG, PROJECT, WORK_DIR,
 } from '../core/roster.mjs';
@@ -143,7 +144,9 @@ console.log(`
              ${heldReason}`}${CONFINEMENT.confined || !agentsReady ? '' : `
              note: ${CONFINEMENT.why}`}
 
-  ▸  Open ${watchUrl}
+  ▸  Open ${watchUrl}${currentSetupCode() ? `
+     Nobody has an account here yet. Set one up with this code: ${currentSetupCode()}
+     (it changes every restart and is never written down)` : ''}
 ${TOKEN_HINT}     Ctrl-C to stop. Nothing is lost — the studio rebuilds from its log.
 `);
 

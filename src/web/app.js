@@ -124,10 +124,10 @@ function lockedOut() {
   if (el) {
     el.hidden = false;
     el.className = 'liveness down';
-    el.innerHTML = '<strong>THIS STUDIO NEEDS ITS TOKEN</strong> '
-      + '<span class="lv-detail">open it once as '
-      + '<code>' + esc(location.pathname) + '?token=&lt;STUDIO_TOKEN&gt;</code>'
-      + (TOKEN ? ' — the token this page is holding was refused' : '')
+    el.innerHTML = '<strong>THIS STUDIO NEEDS YOU TO SIGN IN</strong> '
+      + '<span class="lv-detail"><a href="/signin.html">sign in</a>'
+      + ', or open it once as <code>' + esc(location.pathname) + '?token=&lt;STUDIO_TOKEN&gt;</code>'
+      + (TOKEN ? ' — what this page was holding was refused' : '')
       + '</span>';
   }
   document.title = 'locked — Studio Floor';

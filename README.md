@@ -249,6 +249,15 @@ before exposing it.
 **Set `STUDIO_TOKEN` before you bind this to any public address.** Anyone who
 can reach the API can direct agents that run shell commands as you.
 
+## Several people
+
+The first person to open a new studio claims it with the setup code it printed
+on its console, and invites the rest with links. Everyone has their own account,
+their own session and a role — **owner** runs the studio, **director** directs
+the team, **viewer** watches — and everything a person does is recorded under
+their name, so the history and the agents both know who asked. See
+[docs/CONFIG.md](docs/CONFIG.md#people).
+
 ## Safety
 
 The defaults let agents edit their project directory and run commands without
@@ -279,7 +288,7 @@ every file on disk untouched.
 ## Tests
 
 ```bash
-npm test                        # 42 files, offline, free, ~30s
+npm test                        # 43 files, offline, free, ~30s
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```

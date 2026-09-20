@@ -26,6 +26,7 @@ import {
 import { updateStatus, pullUpdate } from '../core/update.mjs';
 import { parseRemote, checkName, cloneRepo, WORKSPACE_DIR } from '../core/clone.mjs';
 import { resolveAuth } from '../core/auth.mjs';
+import * as accounts from '../core/accounts.mjs';
 import { detect } from '../core/detect.mjs';
 import { fetchModels } from '../core/models.mjs';
 import { tryAgent } from '../core/try-agent.mjs';
@@ -48,6 +49,29 @@ import {
  * your machine, running as you, with your credentials.
  */
 const TOKEN = process.env.STUDIO_TOKEN || SERVER_CONFIG.token || null;
+
+/**
+ * The people who may use this studio.
+ *
+ * Held in memory and written through on every change: one process owns this
+ * file, and a studio that re-read it per request would still be one process
+ * with one copy. `reloadAccounts` exists for the tests, which write the file
+ * themselves.
+ */
+let people = accounts.load();
+export function reloadAccounts() {
+  people = accounts.load();
+  return people;
+}
+
+/**
+ * Printed once by a studio that has nobody in it yet, and held only in memory:
+ * it changes on every restart and is never written to disk. Whoever can read
+ * the studio's own console is whoever installed it, which is the one claim to
+ * ownership a brand-new studio can check.
+ */
+let setupCode = accounts.userCount(people) ? null : accounts.newSetupCode();
+export const currentSetupCode = () => setupCode;
 
 function supplied(req, url) {
   const header = req.headers.authorization || '';
@@ -82,11 +106,58 @@ const SPEAKS_AS_AGENT = new Set(['/api/action', '/api/inbox/ack', '/api/inbox/de
  */
 function identify(req, url, runner) {
   const given = supplied(req, url);
-  if (given && TOKEN && given === TOKEN) return { kind: 'human' };
+
+  // An agent first: its token is the narrowest thing here, and matching it
+  // early keeps an agent from ever being mistaken for a person.
   const agent = given && runner?.agentForToken ? runner.agentForToken(given) : null;
   if (agent) return { kind: 'agent', id: agent };
-  if (!TOKEN) return { kind: 'human' };
+
+  // A person with an account. Their session says who they are, which is what
+  // puts a name in the log instead of "Human".
+  const user = given ? accounts.sessionUser(people, given) : null;
+  if (user) return { kind: 'human', user, role: user.role };
+
+  // The operator's own credential. It predates accounts and stays, because a
+  // script, a cron line and the CLI all need something that is not a session —
+  // and whoever set STUDIO_TOKEN is by definition running this studio.
+  if (given && TOKEN && given === TOKEN) return { kind: 'human', user: null, role: 'owner' };
+
+  // No token configured and nobody has signed up: the laptop studio, open to
+  // whoever can reach the port, exactly as before. The moment accounts exist,
+  // this stops — otherwise adding people would make a studio *less* private.
+  if (!TOKEN && !accounts.userCount(people)) return { kind: 'human', user: null, role: 'owner' };
   return { kind: 'none' };
+}
+
+/** Routes that must answer before anybody can possibly be signed in. */
+const PUBLIC_ROUTES = ['/api/auth/state', '/api/auth/login', '/api/auth/setup', '/api/auth/accept', '/api/auth/invite'];
+
+/**
+ * The same store, with the author attached to anything the human does.
+ *
+ * Every /api/human/* route appends with agent=null and the log renders that as
+ * "Human". With several people in a studio that is a lie of omission: the
+ * history cannot say who redirected the team, and neither can the agents, who
+ * are handed the same line. Wrapping the store here puts the name on every
+ * human event without each handler having to remember to.
+ */
+function authored(store, user) {
+  if (!user) return store;
+  return new Proxy(store, {
+    get(target, prop) {
+      if (prop === 'append') {
+        return (kind, agent, data) => target.append(
+          kind,
+          agent,
+          String(kind).startsWith('human.')
+            ? { ...data, by: user.name, byId: user.id, byEmail: user.email }
+            : data,
+        );
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
 }
 
 /**
@@ -155,12 +226,32 @@ export function createHttpServer(store, runner) {
     // The login page and its assets are the only unauthenticated surface, so a
     // human with the token can get a browser into a state where it holds one.
     const who = identify(req, url, runner);
+
+    // Signing in, signing up, and accepting an invitation all have to work
+    // before anybody holds a credential. Nothing here reads or changes the
+    // studio; they only exchange something you already know — a password, an
+    // invite link, the setup code printed on the console — for a session.
+    if (PUBLIC_ROUTES.includes(p)) {
+      return handleAuth(p, req, res, url, store);
+    }
+
     if (who.kind === 'none' && (p.startsWith('/api/') || isPreviewPath(p))) {
       // The preview is an iframe, which cannot send a header, so its 401 has to
       // be readable in the frame rather than a JSON blob nobody sees.
       if (isPreviewPath(p)) return html(res, 401, previewPage('This studio requires a token', 'Open the preview with <code>?token=…</code> on the URL, or unset <code>server.token</code>.'));
       return json(res, { ok: false, error: 'unauthorised — this studio requires a token' }, 401);
     }
+    // What a person may do depends on why they are here. An owner runs the
+    // studio, a director directs the team, a viewer watches — and watching is
+    // free, which is the point of having the role at all.
+    if (who.kind === 'human' && who.user && p.startsWith('/api/')
+        && !accounts.mayUse(who.role, p, req.method)) {
+      return json(res, {
+        ok: false,
+        error: `your account is a ${who.role}, which cannot ${req.method === 'GET' ? 'read' : 'change'} ${p}`,
+      }, 403);
+    }
+
     if (who.kind === 'agent') {
       if (!AGENT_ROUTES.has(p)) {
         return json(res, {
@@ -207,6 +298,11 @@ export function createHttpServer(store, runner) {
       if (p === '/api/inbox') return inbox(req, res, store, url);
 
       if (p === '/api/runner') return json(res, runner ? runner.status() : { agents: {} });
+      // Reading the list of people. The POST side is below, with the body it
+      // needs; this line ran for every method and swallowed those.
+      if (p === '/api/accounts' && req.method !== 'POST') {
+        return handleAccounts(req, res, {}, who, store, baseUrlOf(req));
+      }
 
       // What the human can watch while the team builds. Resolved per request on
       // purpose: a game directory created one minute from now must light the
@@ -314,6 +410,13 @@ export function createHttpServer(store, runner) {
         // stop an honest mistake from impersonating the human, which is the failure
         // that actually happened.
         if (p.startsWith('/api/human/')) body.via = req.headers.origin || req.headers.referer ? 'browser' : 'api';
+
+        // Everything the human does is recorded under the name of whoever did
+        // it, when there is an account to name. See authored().
+        const mine = authored(store, who.user);
+
+        if (p === '/api/auth/logout') return handleAuth(p, req, res, url, store, body);
+        if (p === '/api/accounts') return handleAccounts(req, res, body, who, mine, baseUrlOf(req));
 
         // An agent speaks as itself or not at all. The route allowlist above
         // already refused everything that is not agent work; this refuses an
@@ -467,7 +570,7 @@ export function createHttpServer(store, runner) {
           return json(res, { ok: true, ...c, deprecated: 'use /api/inbox/delivered then /api/inbox/ack' });
         }
         if (p === '/api/human/say') {
-          const ev = store.append('human.message', null, {
+          const ev = mine.append('human.message', null, {
             from: 'human',
             to: normList(body.to),
             text: body.text || '',
@@ -477,16 +580,16 @@ export function createHttpServer(store, runner) {
           runner?.wake(normList(body.to).length ? normList(body.to) : AGENT_IDS, 'the human said something');
           return json(res, { ok: true, seq: ev.seq });
         }
-        if (p === '/api/human/control') return humanJson(res, () => humanControl(store, runner, body));
-        if (p === '/api/human/verdict') return humanJson(res, () => humanVerdict(store, runner, body));
+        if (p === '/api/human/control') return humanJson(res, () => humanControl(mine, runner, body));
+        if (p === '/api/human/verdict') return humanJson(res, () => humanVerdict(mine, runner, body));
         // TASK-16: the four interventions that had no control anywhere.
         // Separate from /api/human/control so TASK-17 can harden that path
         // without inheriting these verbs, and so we never go through
         // handleAction (requireAgent rejects the human).
-        if (p === '/api/human/task') return humanJson(res, () => humanCreateTask(store, runner, body));
-        if (p === '/api/human/assign') return humanJson(res, () => humanAssign(store, runner, body));
-        if (p === '/api/human/review') return humanJson(res, () => humanReview(store, runner, body));
-        if (p === '/api/human/debate') return humanJson(res, () => humanDebate(store, runner, body));
+        if (p === '/api/human/task') return humanJson(res, () => humanCreateTask(mine, runner, body));
+        if (p === '/api/human/assign') return humanJson(res, () => humanAssign(mine, runner, body));
+        if (p === '/api/human/review') return humanJson(res, () => humanReview(mine, runner, body));
+        if (p === '/api/human/debate') return humanJson(res, () => humanDebate(mine, runner, body));
         if (p === '/api/runner/start') {
           await runner?.start(body.agent);
           return json(res, { ok: true });
@@ -2192,6 +2295,159 @@ function json(res, obj, code = 200) {
 function end(res, code, body) {
   res.writeHead(code);
   res.end(body);
+}
+
+/**
+ * Signing in, and everything that has to work before you are signed in.
+ *
+ * Kept in one function, away from the routes that do studio things, because the
+ * rule for this handful of routes is the opposite of the rule everywhere else:
+ * they are reachable without a credential, so each one has to earn what it
+ * gives back — a password, an unexpired invitation, or the setup code the
+ * studio printed for whoever installed it.
+ */
+async function handleAuth(p, req, res, url, store, parsed = null) {
+  const isPost = req.method === 'POST';
+
+  // What the page needs to know before it can show anything: is there anybody
+  // here yet, and am I signed in? Deliberately says nothing else.
+  if (p === '/api/auth/state') {
+    const me = accounts.sessionUser(people, supplied(req, url));
+    return json(res, {
+      ok: true,
+      accounts: accounts.userCount(people),
+      needsSetup: accounts.userCount(people) === 0,
+      // A studio with no accounts and no token is the open laptop case, and the
+      // page should not nag about signing in to something with no door.
+      open: accounts.userCount(people) === 0 && !TOKEN,
+      user: accounts.publicUser(me),
+    });
+  }
+
+  // Who an invitation is for, so the page can greet them rather than asking for
+  // an email address it already knows.
+  if (p === '/api/auth/invite') {
+    const invite = accounts.inviteFor(people, url.searchParams.get('token'));
+    if (!invite) return json(res, { ok: false, error: 'that invitation has expired or was already used' }, 404);
+    return json(res, { ok: true, email: invite.email, role: invite.role });
+  }
+
+  if (!isPost) return json(res, { ok: false, error: 'POST required' }, 405);
+  // A request body can only be read once. The dispatcher has already read it
+  // for the routes it reaches after authenticating — logout is one — and
+  // reading it again waits forever for an 'end' event that has already fired.
+  const body = parsed || await readJson(req);
+
+  if (p === '/api/auth/setup') {
+    if (accounts.userCount(people)) return json(res, { ok: false, error: 'this studio already has an owner' }, 409);
+    if (!setupCode || String(body.code || '').trim() !== setupCode) {
+      return json(res, {
+        ok: false,
+        error: 'that setup code is not the one this studio printed when it started',
+      }, 403);
+    }
+    const made = accounts.createOwner(people, body);
+    if (!made.ok) return json(res, made, 400);
+    const session = accounts.startSession(people, made.user);
+    accounts.save(people);
+    // Used once. A code that still worked afterwards would be a second door
+    // into a studio that now has a real one.
+    setupCode = null;
+    store.append('human.account', null, { action: 'created the first account', by: made.user.name, role: 'owner' });
+    return json(res, { ok: true, token: session.token, user: accounts.publicUser(made.user) });
+  }
+
+  if (p === '/api/auth/login') {
+    const result = accounts.login(people, body);
+    if (!result.ok) return json(res, result, 401);
+    accounts.save(people);
+    return json(res, { ok: true, token: result.token, user: accounts.publicUser(result.user) });
+  }
+
+  if (p === '/api/auth/accept') {
+    const made = accounts.acceptInvite(people, body.token, body);
+    if (!made.ok) return json(res, made, 400);
+    const session = accounts.startSession(people, made.user);
+    accounts.save(people);
+    store.append('human.account', null, { action: 'joined the studio', by: made.user.name, role: made.user.role });
+    return json(res, { ok: true, token: session.token, user: accounts.publicUser(made.user) });
+  }
+
+  if (p === '/api/auth/logout') {
+    accounts.endSession(people, supplied(req, url));
+    accounts.save(people);
+    return json(res, { ok: true });
+  }
+
+  return json(res, { ok: false, error: `no such route ${p}` }, 404);
+}
+
+/**
+ * The people in this studio: who they are, what they may do, and the links that
+ * let somebody new in. Owner-only, enforced before this is reached.
+ *
+ * Invitations are links rather than emails on purpose. Sending mail means an
+ * SMTP server configured before anybody can join, which is where a self-hosted
+ * tool loses most of the people who try it. The owner copies a link and sends
+ * it however they already talk to their team.
+ */
+function handleAccounts(req, res, body, who, store, base) {
+  if (req.method !== 'POST') {
+    return json(res, {
+      ok: true,
+      users: people.users.map(accounts.publicUser),
+      invites: people.invites.map(({ tokenHash, ...rest }) => rest),
+      roles: accounts.ROLES,
+    });
+  }
+
+  const actor = who.user;
+  if (body.action === 'invite') {
+    const made = accounts.createInvite(people, { email: body.email, role: body.role, byId: actor?.id || null });
+    if (!made.ok) return json(res, made, 400);
+    accounts.save(people);
+    store.append('human.account', null, {
+      action: `invited ${made.invite.email} as ${made.invite.role}`, by: actor?.name || 'the operator',
+    });
+    // The only time this token is ever returned. It is stored as a hash, so a
+    // link that is lost has to be revoked and reissued rather than looked up.
+    return json(res, { ok: true, invite: { ...made.invite, tokenHash: undefined }, link: `${base}/signin.html?invite=${encodeURIComponent(made.token)}` });
+  }
+
+  if (body.action === 'revoke') {
+    const gone = accounts.revokeInvite(people, body.id);
+    accounts.save(people);
+    return json(res, gone.ok ? { ok: true } : { ok: false, error: 'no such invitation' }, gone.ok ? 200 : 404);
+  }
+
+  if (body.action === 'role') {
+    const changed = accounts.setRole(people, body.id, body.role);
+    if (!changed.ok) return json(res, changed, 400);
+    accounts.save(people);
+    store.append('human.account', null, {
+      action: `made ${changed.user.name} a ${changed.user.role}`, by: actor?.name || 'the operator',
+    });
+    return json(res, { ok: true, user: accounts.publicUser(changed.user) });
+  }
+
+  if (body.action === 'remove') {
+    const gone = accounts.removeUser(people, body.id);
+    if (!gone.ok) return json(res, gone, 400);
+    accounts.save(people);
+    store.append('human.account', null, {
+      action: `removed ${gone.user.name}`, by: actor?.name || 'the operator',
+    });
+    return json(res, { ok: true });
+  }
+
+  return json(res, { ok: false, error: 'action must be invite, revoke, role or remove' }, 400);
+}
+
+function baseUrlOf(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
+    || (req.socket?.encrypted ? 'https' : 'http');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || `${HOST}:${PORT}`).split(',')[0].trim();
+  return `${proto}://${host}`;
 }
 
 function readJson(req) {

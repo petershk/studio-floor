@@ -48,7 +48,9 @@ WORKDIR /workspace
 # on a headless box hangs until something kills it, and reads to the human as
 # the studio freezing. Failing at once with "could not read Username" is the
 # better failure, and the studio turns that into a sentence about tokens.
-ENV STUDIO_PROJECT_ROOT=/workspace \
+# Accounts live on the state volume, not in the container: replacing the
+# container must not delete the people who use this studio.
+ENV STUDIO_ACCOUNTS=/state/accounts.json     STUDIO_PROJECT_ROOT=/workspace \
     STUDIO_STATE_DIR=/state \
     STUDIO_WORKSPACE=/workspace \
     STUDIO_HOST=0.0.0.0 \
