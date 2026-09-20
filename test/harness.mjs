@@ -126,6 +126,11 @@ export async function startStudioServer({
   root = null,
   prefix = 'studio-test-',
   env = {},
+  // The credential this client presents. A studio under test usually has none,
+  // but one testing what a token opens must be able to hold one — including for
+  // the nonce check below, which is an API call like any other and gets a 401
+  // like any other.
+  token = env.STUDIO_TOKEN || null,
   timeoutMs = 30_000,
 } = {}) {
   if (!boot) throw new Error('startStudioServer needs a `boot` source that calls studioTestReady(store, server)');
@@ -168,7 +173,7 @@ export async function startStudioServer({
   }
 
   const base = `http://127.0.0.1:${port}`;
-  const { get, post } = makeClient(base);
+  const { get, post } = makeClient(base, token);
 
   // The identity check. A server we did not start cannot have written our nonce.
   const seen = await get('/api/events?kinds=studio.note&limit=500');
@@ -265,13 +270,14 @@ function waitForReadyLine(child, nonce, timeoutMs, stderrSoFar) {
  * refusal is data, not an error. Pass `{ strict: true }` where a failed POST
  * means the test's own setup broke and there is nothing left worth checking.
  */
-function makeClient(base) {
-  const get = async (pathname) => body(pathname, await fetch(`${base}${pathname}`));
+function makeClient(base, token = null) {
+  const auth = token ? { authorization: `Bearer ${token}` } : {};
+  const get = async (pathname) => body(pathname, await fetch(`${base}${pathname}`, { headers: { ...auth } }));
 
   const post = async (pathname, payload, { strict = false } = {}) => {
     const res = await fetch(`${base}${pathname}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...auth },
       body: JSON.stringify(payload ?? {}),
     });
     if (strict && !res.ok) throw new Error(`${pathname} → ${res.status} ${await res.text()}`);

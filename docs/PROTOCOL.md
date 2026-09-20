@@ -17,6 +17,11 @@ studio agent ack [--through SEQ]        confirm you handled it; until you do, it
 studio agent help                       every verb
 ```
 
+The runner sets `STUDIO_AGENT_TOKEN` too. It is that agent's own credential: it
+opens the verbs above, under that agent's name, and nothing else. Configuration,
+the human's routes and another agent's identity are all refused, so anything in
+those areas is something to raise with `attention` rather than to do.
+
 ## The rules
 
 1. **Read the brief before significant work.** Other agents are working in this

@@ -48,12 +48,44 @@ import {
  */
 const TOKEN = process.env.STUDIO_TOKEN || SERVER_CONFIG.token || null;
 
-function authorised(req, url) {
-  if (!TOKEN) return true;
+function supplied(req, url) {
   const header = req.headers.authorization || '';
   const bearer = header.startsWith('Bearer ') ? header.slice(7) : null;
-  const supplied = bearer || req.headers['x-studio-token'] || url.searchParams.get('token');
-  return supplied === TOKEN;
+  return bearer || req.headers['x-studio-token'] || url.searchParams.get('token') || null;
+}
+
+/**
+ * The routes an agent may call, and nothing else.
+ *
+ * An agent's job is to read shared state and add to it. Changing the roster,
+ * switching project, starting and stopping other agents, reading or writing
+ * secrets, speaking as the human — none of that is agent work, and an agent
+ * that could do it could quietly widen its own sandbox and then use it. Every
+ * agent held STUDIO_TOKEN until this existed, so all of it was reachable.
+ */
+const AGENT_ROUTES = new Set([
+  '/api/state', '/api/events', '/api/stream',
+  '/api/inbox', '/api/inbox/read', '/api/inbox/ack', '/api/inbox/delivered',
+  '/api/action',
+]);
+
+/** Requests that name an agent must name the one whose token they carry. */
+const SPEAKS_AS_AGENT = new Set(['/api/action', '/api/inbox/ack', '/api/inbox/delivered', '/api/inbox/read']);
+
+/**
+ * Who is calling: the human, one agent, or nobody we accept.
+ *
+ * A studio with no token is a loopback studio where the human is whoever can
+ * reach it — but an agent token still identifies its bearer as that agent, so
+ * the scoping below holds either way.
+ */
+function identify(req, url, runner) {
+  const given = supplied(req, url);
+  if (given && TOKEN && given === TOKEN) return { kind: 'human' };
+  const agent = given && runner?.agentForToken ? runner.agentForToken(given) : null;
+  if (agent) return { kind: 'agent', id: agent };
+  if (!TOKEN) return { kind: 'human' };
+  return { kind: 'none' };
 }
 
 /**
@@ -121,11 +153,21 @@ export function createHttpServer(store, runner) {
 
     // The login page and its assets are the only unauthenticated surface, so a
     // human with the token can get a browser into a state where it holds one.
-    if (TOKEN && (p.startsWith('/api/') || isPreviewPath(p)) && !authorised(req, url)) {
+    const who = identify(req, url, runner);
+    if (who.kind === 'none' && (p.startsWith('/api/') || isPreviewPath(p))) {
       // The preview is an iframe, which cannot send a header, so its 401 has to
       // be readable in the frame rather than a JSON blob nobody sees.
       if (isPreviewPath(p)) return html(res, 401, previewPage('This studio requires a token', 'Open the preview with <code>?token=…</code> on the URL, or unset <code>server.token</code>.'));
       return json(res, { ok: false, error: 'unauthorised — this studio requires a token' }, 401);
+    }
+    if (who.kind === 'agent') {
+      if (!AGENT_ROUTES.has(p)) {
+        return json(res, {
+          ok: false,
+          error: `an agent token cannot use ${p} — that is the human's to do. `
+            + 'Raise it with `studio agent attention` instead.',
+        }, 403);
+      }
     }
 
     try {
@@ -265,6 +307,21 @@ export function createHttpServer(store, runner) {
         // stop an honest mistake from impersonating the human, which is the failure
         // that actually happened.
         if (p.startsWith('/api/human/')) body.via = req.headers.origin || req.headers.referer ? 'browser' : 'api';
+
+        // An agent speaks as itself or not at all. The route allowlist above
+        // already refused everything that is not agent work; this refuses an
+        // agent putting another agent's name on the work it does do, which is
+        // how one would fake a review of its own change or an instruction from
+        // a teammate.
+        if (who.kind === 'agent' && SPEAKS_AS_AGENT.has(p)) {
+          if (body.agent && body.agent !== who.id) {
+            return json(res, {
+              ok: false,
+              error: `this token belongs to "${who.id}" and cannot act as "${body.agent}"`,
+            }, 403);
+          }
+          body.agent = who.id;
+        }
 
         if (p === '/api/update') {
           if (!sameOrigin(req)) {

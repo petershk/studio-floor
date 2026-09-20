@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STATE_DIR, TRANSCRIPT_DIR, BASE_URL, STUDIO_CMD } from '../core/paths.mjs';
 import { CONFIG, AGENTS, WORK_DIR, AGENTS_READY, getAgent } from '../core/roster.mjs';
 import { getAdapter } from './adapters/index.mjs';
 import { resolveLaunch } from './launch.mjs';
+import { agentEnv } from './child-env.mjs';
 import { firstTurnPrompt, turnPrompt } from './prompts.mjs';
 import { resolveAuth } from '../core/auth.mjs';
 import { briefState } from '../core/projects.mjs';
@@ -75,6 +77,14 @@ export class Runner {
       this.agents.set(id, {
         id,
         record,
+        /**
+         * This agent's own credential for the studio's API, minted here and
+         * never written to the log. It authorises the agent verbs for this one
+         * agent: not /api/config, not /api/human/*, and not another agent's
+         * identity. The human's STUDIO_TOKEN used to be handed to every agent
+         * instead, which made each of them able to rewrite the roster.
+         */
+        token: randomBytes(24).toString('hex'),
         running: false,
         stopping: false,
         child: null,
@@ -89,6 +99,16 @@ export class Runner {
       });
     }
     this.store.on('event', (ev) => this.#onStoreEvent(ev));
+  }
+
+  /**
+   * Which agent, if any, a credential belongs to. The server asks; nothing
+   * else should, and the tokens are never logged or returned over the API.
+   */
+  agentForToken(token) {
+    if (!token) return null;
+    for (const [id, a] of this.agents) if (a.token === token) return id;
+    return null;
   }
 
   status() {
@@ -699,31 +719,39 @@ export class Runner {
           text: `${a.id} has no working credentials — ${auth.detail}`,
         });
       }
-      const env = {
-        ...process.env,
-        STUDIO_AGENT: a.id,
-        STUDIO_URL: BASE_URL,
-        STUDIO_PROJECT_ROOT: PROJECT_ROOT,
-        STUDIO_CMD,
-        // An adapter may translate safe, declarative options into the
-        // environment its CLI expects — `baseUrl` and `apiKey` into
-        // ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN, for instance. That is
-        // what lets one adapter serve any API-compatible backend without the
-        // settings panel having to accept arbitrary env, which it must not.
-        ...(adapter.env ? adapter.env(a.record) || {} : {}),
-        // A key this studio holds, put where this CLI looks for one. The
-        // environment already wins over the store, so a key injected by a
-        // deployment is never overridden by one typed into a browser.
-        ...auth.env,
+      // Built from an allowlist, not inherited wholesale: see child-env.mjs for
+      // what an agent may see and why the rest is withheld.
+      const env = agentEnv({
+        studio: {
+          STUDIO_AGENT: a.id,
+          STUDIO_URL: BASE_URL,
+          STUDIO_PROJECT_ROOT: PROJECT_ROOT,
+          STUDIO_CMD,
+          // This agent's own credential, scoped to the agent verbs and to this
+          // id. It replaces STUDIO_TOKEN, which is the human's.
+          STUDIO_AGENT_TOKEN: a.token,
+        },
+        secrets: {
+          // An adapter may translate safe, declarative options into the
+          // environment its CLI expects — `baseUrl` and `apiKey` into
+          // ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN, for instance. That is
+          // what lets one adapter serve any API-compatible backend without the
+          // settings panel having to accept arbitrary env, which it must not.
+          ...(adapter.env ? adapter.env(a.record) || {} : {}),
+          // The one key this agent is entitled to, wherever it came from: the
+          // studio's own store, or the variable the operator set. No other
+          // agent's key is in this environment at all.
+          ...auth.env,
+        },
         // Raw env stays last and stays file-only: it is the escape hatch, and
         // it is the reason the panel refuses this key.
-        ...(a.record.options?.env || {}),
-      };
-      // `auth: login` means the CLI's own stored login and nothing else, so the
-      // key variables are cleared rather than merely not set. Inheriting one
-      // from the environment would make the setting a description of what might
-      // happen instead of a decision about what does.
-      for (const name of auth.unset) delete env[name];
+        extra: a.record.options?.env || {},
+        // `auth: login` means the CLI's own stored login and nothing else, so
+        // the key variables are cleared rather than merely not set. Inheriting
+        // one would make the setting a description of what might happen instead
+        // of a decision about what does.
+        unset: auth.unset,
+      });
       // An agent may override the executable — a wrapper script, a pinned
       // version, or the same provider reached through a different binary.
       const wanted = a.record.options?.command || adapter.command;

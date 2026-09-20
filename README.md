@@ -276,7 +276,7 @@ every file on disk untouched.
 ## Tests
 
 ```bash
-npm test                        # 40 files, offline, free, ~30s
+npm test                        # 41 files, offline, free, ~30s
 node test/adapter-check.mjs     # launches the real CLIs with a trivial prompt
 node test/launch-check.mjs      # measures prompt size against a running studio
 ```

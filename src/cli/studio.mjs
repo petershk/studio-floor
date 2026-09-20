@@ -15,7 +15,10 @@ import { memoryFor, MEMORY_SCOPES } from '../core/memory.mjs';
 import { atRoundLimit } from '../core/debate.mjs';
 
 /** Set on a studio that requires one; the runner passes it to every agent. */
-const TOKEN = process.env.STUDIO_TOKEN || '';
+// An agent's own token first: it is scoped to the agent verbs and to this
+// agent's identity, where STUDIO_TOKEN is the human's and opens everything.
+// The fallback keeps a human driving the CLI by hand working as before.
+const TOKEN = process.env.STUDIO_AGENT_TOKEN || process.env.STUDIO_TOKEN || '';
 const AUTH = TOKEN ? { authorization: `Bearer ${TOKEN}` } : {};
 
 
