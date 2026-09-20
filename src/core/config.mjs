@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG_FILE, PROJECT_ROOT, PACKAGE_ROOT } from './paths.mjs';
+import { CONFINE_MODES } from './confine.mjs';
 import { AUTH_MODES } from './auth.mjs';
 
 /**
@@ -48,6 +49,29 @@ export const DEFAULT_RUNNER = {
    * from spawn itself, so the provider never runs and cannot report it.
    */
   commandLineBudget: 28_000,
+};
+
+/**
+ * How hard the boundary around an agent is.
+ *
+ * File-only, and deliberately absent from every editable list in this module.
+ * The settings panel may change how much freedom agents have inside their
+ * directory; it may not decide whether the directory is a wall. That is the
+ * same line `command` and `adapters` sit on, for the same reason: the server
+ * answers cross-origin, so a writable version of this is a button that turns
+ * the sandbox off from any tab the human has open.
+ */
+export const DEFAULT_SECURITY = {
+  /**
+   * `auto` confines agents wherever it can, and *requires* it once the studio
+   * is shared — a token set, or bound off loopback. `require` always demands
+   * it. `off` is an operator saying out loud that agents may read anything the
+   * studio can, which is how a laptop studio on Windows or a plain `npm start`
+   * keeps working.
+   */
+  confineAgents: 'auto',
+  /** The unprivileged account agent turns run as. Created by the Docker image. */
+  agentUser: 'studio-agent',
 };
 
 export const DEFAULT_SERVER = {
@@ -363,6 +387,7 @@ export function defaultConfig() {
     },
     agents: DEFAULT_AGENTS.map((a) => ({ ...a })),
     runner: { ...DEFAULT_RUNNER },
+    security: { ...DEFAULT_SECURITY },
     server: { ...DEFAULT_SERVER },
   };
 }
@@ -404,6 +429,13 @@ export function normaliseConfig(raw = {}) {
   cfg.project = { ...cfg.project, ...(legacy.project || {}) };
   cfg.runner = { ...cfg.runner, ...(legacy.runner || {}) };
   cfg.server = { ...cfg.server, ...(legacy.server || {}) };
+  cfg.security = { ...cfg.security, ...(legacy.security || {}) };
+  if (!CONFINE_MODES.includes(cfg.security.confineAgents)) {
+    throw new Error(
+      `studio: security.confineAgents must be one of ${CONFINE_MODES.join(', ')} — `
+      + `not ${JSON.stringify(cfg.security.confineAgents)}`,
+    );
+  }
 
   const list = Array.isArray(legacy.agents) && legacy.agents.length
     ? legacy.agents

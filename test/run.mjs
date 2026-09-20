@@ -44,6 +44,7 @@ const STUDIO_TESTS = [
   'launch-failed.mjs',
   'workdir-gate.mjs',
   'agent-scope.mjs',
+  'confine.mjs',
   'turn-failed.mjs',
   'budgets.mjs',
   'liveness.mjs',
@@ -82,7 +83,8 @@ const STUDIO_TESTS = [
  * omitted.
  */
 const OPT_IN = ['launch-check.mjs (needs a running studio)', 'adapter-check.mjs (spends provider tokens)',
-  'acp-spike.mjs (spends provider tokens; see docs/ACP.md)'];
+  'acp-spike.mjs (spends provider tokens; see docs/ACP.md)',
+  'confine-root.mjs (needs root; proves the agent boundary for real)'];
 
 // The source these tests actually exercise. Hashing the tests alone would let a
 // production change go unnoticed in the digest, which is the whole point of it.
@@ -100,6 +102,8 @@ const STUDIO_SOURCES = [
   'src/core/paths.mjs',
   'src/server/server.mjs',
   'src/agents/runner.mjs',
+  'src/agents/child-env.mjs',
+  'src/core/confine.mjs',
   'src/agents/prompts.mjs',
   'src/agents/adapters/index.mjs',
   'src/agents/adapters/shared.mjs',

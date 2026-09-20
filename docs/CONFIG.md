@@ -200,6 +200,38 @@ Only the endpoint is built in, never a model name — those move faster than thi
 file can, and a stale default silently routing to a retired model is worse than
 being asked for one.
 
+## `security`
+
+File-only, and the settings panel is not allowed to write it. The panel may
+change how much freedom agents have inside their directory; it may not decide
+whether that directory is a wall. Same line `command` and `adapters` sit on, and
+for the same reason.
+
+```json
+"security": { "confineAgents": "auto", "agentUser": "studio-agent" }
+```
+
+| key | meaning |
+| --- | --- |
+| `confineAgents` | `auto` (default) runs agent turns as `agentUser` wherever it can, and **requires** it once the studio is shared — a token set, or bound off loopback. `require` always demands it. `off` accepts that agents can read whatever the studio can. |
+| `agentUser` | the unprivileged account agent turns run as. The Docker image creates `studio-agent`. |
+
+Confinement needs root on a POSIX host: only root may become another user. In
+the container that is the normal case. On a laptop it is not, so a private
+loopback studio runs unconfined and says so, in the banner, in `studio doctor`
+and in the panel.
+
+When it is on, the studio **takes ownership of the work directory** for the
+agent user, seals its own state (`studio_floor/`) to itself, and makes the path
+down to the work directory enterable but not listable, so sibling repositories
+stay invisible. A CLI login must then be made as that user:
+
+```bash
+docker compose exec -u studio-agent studio claude /login
+```
+
+A login made as root lands in root's home, where the agents cannot read it.
+
 ## `adapters`
 
 Paths (resolved against the project directory) or package names, loaded before

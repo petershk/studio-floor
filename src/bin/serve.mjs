@@ -21,7 +21,10 @@ import {
   PORT, HOST, PROJECT_ROOT, STATE_DIR, CONFIG_FILE, IS_LEGACY_LAYOUT, EXIT_SWITCH, EXIT_REFUSED,
 } from '../core/paths.mjs';
 import { startHeartbeat } from '../core/heartbeat.mjs';
-import { AGENT_IDS, AGENTS, AGENTS_READY, CONFIG, PROJECT, WORK_DIR } from '../core/roster.mjs';
+import {
+  AGENT_IDS, AGENTS, AGENTS_READY, CONFINEMENT, CONFINEMENT_PLAN, CONFIG, PROJECT, WORK_DIR,
+} from '../core/roster.mjs';
+import { applyConfinement } from '../core/confine.mjs';
 
 const argv = process.argv.slice(2);
 const noAgents = argv.includes('--no-agents');
@@ -76,13 +79,28 @@ if (process.env.STUDIO_RECOVERED) {
   } catch { /* a malformed hand-off must not stop the studio coming back */ }
 }
 
+// Make the boundary true before anything runs inside it. A half-applied plan
+// is a studio that believes it is confined and is not, so a failure holds the
+// agents exactly as an unset work directory does.
+let confineFailure = '';
+if (CONFINEMENT.confined) {
+  const applied = applyConfinement(CONFINEMENT_PLAN);
+  if (!applied.ok) confineFailure = applied.error;
+}
+const agentsReady = AGENTS_READY.ready && !confineFailure;
+if (confineFailure) runner.held = `agents could not be confined — ${confineFailure}`;
+const heldReason = confineFailure
+  ? `agents could not be confined — ${confineFailure}`
+  : AGENTS_READY.reason;
+
 store.append('studio.started', null, {
   projectRoot: PROJECT_ROOT,
   project: PROJECT.name,
   agents: config.agents,
-  agentsAutoStarted: !noAgents && AGENTS_READY.ready,
-  workDir: AGENTS_READY.ready ? WORK_DIR.path : null,
-  ...(AGENTS_READY.ready ? {} : { agentsHeld: AGENTS_READY.reason }),
+  agentsAutoStarted: !noAgents && agentsReady,
+  workDir: agentsReady ? WORK_DIR.path : null,
+  confinement: CONFINEMENT.confined ? { user: CONFINEMENT.user?.name, uid: CONFINEMENT.user?.uid } : null,
+  ...(agentsReady ? {} : { agentsHeld: heldReason }),
 });
 
 const watchHost = HOST === '0.0.0.0' ? '<this-host>' : HOST;
@@ -117,11 +135,13 @@ console.log(`
   config     ${CONFIG_FILE}${IS_LEGACY_LAYOUT ? '   (legacy layout)' : ''}
   state      ${STATE_DIR}
   work dir   ${AGENTS_READY.ready ? WORK_DIR.path : '(not set)'}
+  agents run ${CONFINEMENT.confined ? `as ${CONFINEMENT.user.name} (uid ${CONFINEMENT.user.uid})` : `as ${process.env.USER || process.env.USERNAME || 'this user'} — unconfined`}
   providers  ${providers().join(', ')}
   roster     ${AGENTS.map((a) => `${a.id}(${a.provider})`).join(', ')}
-  running    ${!AGENTS_READY.ready ? '(none — agents stay idle until a work directory is set)'
-    : noAgents ? '(none — start them from the web UI)' : config.agents.join(', ')}${AGENTS_READY.ready ? '' : `
-             ${AGENTS_READY.reason}`}
+  running    ${!agentsReady ? '(none — held)'
+    : noAgents ? '(none — start them from the web UI)' : config.agents.join(', ')}${agentsReady ? '' : `
+             ${heldReason}`}${CONFINEMENT.confined || !agentsReady ? '' : `
+             note: ${CONFINEMENT.why}`}
 
   ▸  Open ${watchUrl}
 ${TOKEN_HINT}     Ctrl-C to stop. Nothing is lost — the studio rebuilds from its log.
@@ -146,7 +166,7 @@ if (!argv.includes('--no-open') && !process.env.STUDIO_RESTARTED && HOST !== '0.
   console.log('     your existing browser tab will reconnect on its own.');
 }
 
-if (!noAgents) runner.startAll();
+if (!noAgents && agentsReady) runner.startAll();
 
 let shuttingDown = false;
 for (const sig of ['SIGINT', 'SIGTERM']) {

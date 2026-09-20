@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PROJECT_ROOT, STATE_DIR, TRANSCRIPT_DIR, BASE_URL, STUDIO_CMD } from '../core/paths.mjs';
-import { CONFIG, AGENTS, WORK_DIR, AGENTS_READY, getAgent } from '../core/roster.mjs';
+import { CONFIG, AGENTS, WORK_DIR, AGENTS_READY, CONFINEMENT, getAgent } from '../core/roster.mjs';
 import { getAdapter } from './adapters/index.mjs';
 import { resolveLaunch } from './launch.mjs';
 import { agentEnv } from './child-env.mjs';
@@ -62,6 +62,15 @@ export class Runner {
      * exactly as the wall clock measures this run and not the calendar.
      */
     this.spendAtStart = this.#ledgerTotal();
+    /**
+     * Why no agent may start, or '' when they may.
+     *
+     * Seeded from the work-directory and confinement verdicts, and set by
+     * serve.mjs when applying confinement fails — the runner must refuse for
+     * the same reason the banner gives, or the UI's start button would quietly
+     * disagree with the studio it belongs to.
+     */
+    this.held = AGENTS_READY.ready ? '' : AGENTS_READY.reason;
     const roster = config.roster || AGENTS;
     for (const id of config.agents) {
       const record = roster.find((a) => a.id === id) || getAgent(id);
@@ -125,7 +134,9 @@ export class Runner {
         quietTurns: a.quietTurns,
       };
     }
-    return { agents: out, config: redact(this.config), budgets: this.budgets() };
+    return {
+      agents: out, config: redact(this.config), budgets: this.budgets(), held: this.held,
+    };
   }
 
   /** Wake an agent so it takes a turn as soon as its current one finishes. */
@@ -160,7 +171,7 @@ export class Runner {
   async startAll() {
     // Refused once for the team rather than once per agent: it is one fact
     // about the studio, and the banner and studio.started already carry it.
-    if (!AGENTS_READY.ready) return;
+    if (this.held) return;
     let delay = 0;
     for (const id of this.config.agents) {
       setTimeout(() => this.start(id), delay);
@@ -171,8 +182,8 @@ export class Runner {
   async start(id) {
     const a = this.agents.get(id);
     if (!a || a.running) return;
-    if (!AGENTS_READY.ready) {
-      this.store.append('agent.state', id, { state: 'offline', note: `not started: ${AGENTS_READY.reason}` });
+    if (this.held) {
+      this.store.append('agent.state', id, { state: 'offline', note: `not started: ${this.held}` });
       return;
     }
     a.running = true;
@@ -721,8 +732,13 @@ export class Runner {
       }
       // Built from an allowlist, not inherited wholesale: see child-env.mjs for
       // what an agent may see and why the rest is withheld.
+      // A confined turn runs as its own user, whose home is where its CLI
+      // keeps its login. Without HOME pointing there the CLI would look in the
+      // studio's home, find a login it cannot read, and report it as missing.
+      const asUser = CONFINEMENT.confined ? CONFINEMENT.user : null;
       const env = agentEnv({
         studio: {
+          ...(asUser ? { HOME: asUser.home, USER: asUser.name, LOGNAME: asUser.name } : {}),
           STUDIO_AGENT: a.id,
           STUDIO_URL: BASE_URL,
           STUDIO_PROJECT_ROOT: PROJECT_ROOT,
@@ -768,6 +784,10 @@ export class Runner {
       let child;
       try {
         child = spawn(command, spawnArgs, {
+          // The boundary itself: this process is not the studio's user, so the
+          // event log, the config, the stored keys and every other project are
+          // files it has no permission to open. See core/confine.mjs.
+          ...(asUser ? { uid: asUser.uid, gid: asUser.gid } : {}),
           // Where the team can write, not just where it starts. Every vendor
           // CLI scopes its sandbox to the working directory, so this line is
           // what stops a team building in test_project/ from editing the studio

@@ -1,4 +1,5 @@
 import { loadConfig, resolveWorkDir, agentReadiness } from './config.mjs';
+import { confinement, confinementPlan, isShared } from './confine.mjs';
 
 /**
  * The resolved team, loaded once per process.
@@ -51,7 +52,34 @@ export const PROJECT = CONFIG.project;
 export const WORK_DIR = resolveWorkDir(CONFIG.project?.workDir);
 
 /**
- * Whether agents may run at all, and if not, why. `ready: false` holds every
- * agent idle: the server still runs, so the human can set the directory.
+ * Whether the operating system, not just the prompt, keeps agents inside that
+ * directory — and on a shared studio, whether they may run without it.
  */
-export const AGENTS_READY = agentReadiness(WORK_DIR);
+export const CONFINEMENT = confinement({
+  mode: CONFIG.security?.confineAgents,
+  userName: CONFIG.security?.agentUser,
+  workDir: WORK_DIR.path,
+  shared: isShared({
+    host: process.env.STUDIO_HOST || CONFIG.server?.host,
+    token: process.env.STUDIO_TOKEN || CONFIG.server?.token,
+  }),
+});
+
+/** What confinement will change on disk, for the banner, doctor and the panel. */
+export const CONFINEMENT_PLAN = CONFINEMENT.confined
+  ? confinementPlan({ user: CONFINEMENT.user, workDir: WORK_DIR.path })
+  : [];
+
+/**
+ * Whether agents may run at all, and if not, why. `ready: false` holds every
+ * agent idle: the server still runs, so the human can fix what is wrong.
+ *
+ * Two gates, one answer. A work directory nobody chose holds the team; so does
+ * a shared studio that cannot make that directory a boundary.
+ */
+export const AGENTS_READY = (() => {
+  const dir = agentReadiness(WORK_DIR);
+  if (!dir.ready) return dir;
+  if (!CONFINEMENT.ready) return { ready: false, reason: CONFINEMENT.held };
+  return dir;
+})();
